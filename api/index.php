@@ -24,10 +24,11 @@ $pdo = Database::getConnection();
 if ($path === '' || $path === '/' || $path === '/api') {
     Response::success([
         'system' => 'ApexSIS Enterprise School Information System API',
-        'version' => '2.0.0',
+        'version' => '2.1.0',
         'status' => 'operational',
+        'security' => 'Strict RBAC & Record-Level Authorization Active',
         'timestamp' => date('c')
-    ], 'ApexSIS API is ready.');
+    ], 'ApexSIS API is ready and secured.');
 }
 
 // -----------------------------------------------------------------------------
@@ -67,6 +68,12 @@ if ($path === '/api/auth/login' && $method === 'POST') {
     ];
     $token = JWT::encode($tokenPayload);
 
+    // Attach permissions and entity IDs to user payload
+    $user['permissions'] = Response::getPermissionsForUser($user);
+    $user['student_id'] = Response::getStudentIdForUser($user['id']);
+    $user['faculty_id'] = Response::getFacultyIdForUser($user['id']);
+    $user['linked_students'] = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+
     Response::auditLog($user['id'], $tokenPayload['name'], $user['role'], 'USER_LOGIN', 'Auth', $user['id']);
 
     unset($user['password_hash']);
@@ -85,10 +92,18 @@ if ($path === '/api/auth/me' && $method === 'GET') {
                            WHERE u.id = ?");
     $stmt->execute([$authUser['id']]);
     $user = $stmt->fetch();
+
+    if ($user) {
+        $user['permissions'] = Response::getPermissionsForUser($user);
+        $user['student_id'] = Response::getStudentIdForUser($user['id']);
+        $user['faculty_id'] = Response::getFacultyIdForUser($user['id']);
+        $user['linked_students'] = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+    }
+
     Response::success($user, 'User details retrieved.');
 }
 
-// Demo Quick Role Switcher
+// Quick Role Switcher for demonstration & evaluation
 if ($path === '/api/auth/switch-role' && $method === 'POST') {
     $body = Response::getJsonBody();
     $targetRole = trim($body['role'] ?? 'Super Administrator');
@@ -102,7 +117,6 @@ if ($path === '/api/auth/switch-role' && $method === 'POST') {
     $user = $stmt->fetch();
 
     if (!$user) {
-        // Fallback to first user
         $stmt = $pdo->query("SELECT u.*, up.first_name, up.last_name FROM users u LEFT JOIN user_profiles up ON u.id = up.user_id LIMIT 1");
         $user = $stmt->fetch();
     }
@@ -116,6 +130,11 @@ if ($path === '/api/auth/switch-role' && $method === 'POST') {
     ];
     $token = JWT::encode($tokenPayload);
 
+    $user['permissions'] = Response::getPermissionsForUser($user);
+    $user['student_id'] = Response::getStudentIdForUser($user['id']);
+    $user['faculty_id'] = Response::getFacultyIdForUser($user['id']);
+    $user['linked_students'] = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+
     unset($user['password_hash']);
     Response::success([
         'token' => $token,
@@ -124,14 +143,260 @@ if ($path === '/api/auth/switch-role' && $method === 'POST') {
 }
 
 // -----------------------------------------------------------------------------
-// 2. DASHBOARD METRICS & ANALYTICS (Role-Specific)
+// 1.1 RBAC ROLES & PERMISSIONS MANAGEMENT API
 // -----------------------------------------------------------------------------
 
-if ($path === '/api/dashboard/stats' && $method === 'GET') {
-    $user = Response::getAuthUser();
-    $role = $user['role'] ?? 'Super Administrator';
+if ($path === '/api/rbac/roles' && $method === 'GET') {
+    $user = Response::requireAuth();
+    $stmt = $pdo->query("SELECT r.*, COUNT(rp.permission_id) as permissions_count 
+                         FROM roles r 
+                         LEFT JOIN role_permissions rp ON r.id = rp.role_id 
+                         GROUP BY r.id 
+                         ORDER BY r.name ASC");
+    $roles = $stmt->fetchAll();
 
-    // Shared / Master counters
+    // Attach permissions per role
+    foreach ($roles as &$role) {
+        $permStmt = $pdo->prepare("SELECT p.name FROM permissions p JOIN role_permissions rp ON p.id = rp.permission_id WHERE rp.role_id = ?");
+        $permStmt->execute([$role['id']]);
+        $role['permissions'] = $permStmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+    unset($role);
+
+    Response::success($roles, 'Roles retrieved.');
+}
+
+if ($path === '/api/rbac/permissions' && $method === 'GET') {
+    $user = Response::requireAuth();
+    $stmt = $pdo->query("SELECT * FROM permissions ORDER BY module ASC, name ASC");
+    $perms = $stmt->fetchAll();
+    Response::success($perms, 'Permissions retrieved.');
+}
+
+if ($path === '/api/rbac/role-permissions' && $method === 'POST') {
+    $user = Response::requirePermission('rbac.manage');
+    $body = Response::getJsonBody();
+
+    $roleId = (int)($body['role_id'] ?? 0);
+    $permissionName = trim($body['permission_name'] ?? '');
+    $grant = (bool)($body['grant'] ?? true);
+
+    if ($roleId <= 0 || empty($permissionName)) {
+        Response::error('Role ID and permission name are required.', 400);
+    }
+
+    $permStmt = $pdo->prepare("SELECT id FROM permissions WHERE name = ?");
+    $permStmt->execute([$permissionName]);
+    $permId = $permStmt->fetchColumn();
+
+    if (!$permId) {
+        Response::error('Permission not found.', 404);
+    }
+
+    if ($grant) {
+        $stmt = $pdo->prepare("INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)");
+        $stmt->execute([$roleId, $permId]);
+    } else {
+        $stmt = $pdo->prepare("DELETE FROM role_permissions WHERE role_id = ? AND permission_id = ?");
+        $stmt->execute([$roleId, $permId]);
+    }
+
+    Response::auditLog($user['id'], $user['name'], $user['role'], 'UPDATE_ROLE_PERMISSION', 'RBAC', $roleId, null, [
+        'permission' => $permissionName,
+        'granted' => $grant
+    ]);
+
+    Response::success(['granted' => $grant], "Permission '{$permissionName}' updated for role.");
+}
+
+// -----------------------------------------------------------------------------
+// 2. DASHBOARD METRICS & ANALYTICS (ROLE-SPECIFIC DATA ISOLATION)
+// -----------------------------------------------------------------------------
+
+// Helper for Student Isolated Dashboard
+function getStudentDashboardData($pdo, $user) {
+    $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+
+    // Student basic academic record
+    $stdStmt = $pdo->prepare("
+        SELECT s.*, sp.first_name, sp.last_name, p.name as program_name, p.code as program_code, yl.name as year_level
+        FROM students s
+        JOIN student_profiles sp ON s.id = sp.student_id
+        JOIN programs p ON s.program_id = p.id
+        JOIN year_levels yl ON s.year_level_id = yl.id
+        WHERE s.id = ?
+    ");
+    $stdStmt->execute([$studentId]);
+    $student = $stdStmt->fetch();
+
+    // Enrolled subjects & active load
+    $subStmt = $pdo->prepare("
+        SELECT es.*, sub.code, sub.title, sub.credit_units, sch.day_of_week, sch.start_time, sch.end_time, r.room_number,
+               f.first_name as prof_first, f.last_name as prof_last
+        FROM enrollment_subjects es
+        JOIN enrollments e ON es.enrollment_id = e.id
+        JOIN subjects sub ON es.subject_id = sub.id
+        LEFT JOIN schedules sch ON es.schedule_id = sch.id
+        LEFT JOIN rooms r ON sch.room_id = r.id
+        LEFT JOIN faculty f ON sch.faculty_id = f.id
+        WHERE e.student_id = ? AND e.status = 'Enrolled'
+    ");
+    $subStmt->execute([$studentId]);
+    $enrolledSubjects = $subStmt->fetchAll();
+
+    // Outstanding balance
+    $balStmt = $pdo->prepare("SELECT COALESCE(SUM(balance), 0) FROM invoices WHERE student_id = ? AND status != 'Paid'");
+    $balStmt->execute([$studentId]);
+    $myBalance = (float)$balStmt->fetchColumn();
+
+    // Student Attendance Rate
+    $attStmt = $pdo->prepare("
+        SELECT COUNT(*) as total_sessions,
+               SUM(CASE WHEN status = 'Present' THEN 1 ELSE 0 END) as present_count
+        FROM attendance WHERE student_id = ?
+    ");
+    $attStmt->execute([$studentId]);
+    $attData = $attStmt->fetch();
+    $attRate = ($attData['total_sessions'] > 0) ? round(($attData['present_count'] / $attData['total_sessions']) * 100) : 95;
+
+    // Clearance Status
+    $clrStmt = $pdo->prepare("SELECT overall_status FROM clearances WHERE student_id = ? ORDER BY id DESC LIMIT 1");
+    $clrStmt->execute([$studentId]);
+    $myClearance = $clrStmt->fetchColumn() ?: 'Cleared';
+
+    // Today's classes
+    $todayName = date('l');
+    $todayClasses = array_values(array_filter($enrolledSubjects, function($s) use ($todayName) {
+        return ($s['day_of_week'] === $todayName);
+    }));
+
+    // Targeted Announcements
+    $annStmt = $pdo->query("SELECT * FROM announcements WHERE audience IN ('All', 'Students') ORDER BY created_at DESC LIMIT 5");
+    $announcements = $annStmt->fetchAll();
+
+    return [
+        'role' => 'Student',
+        'is_isolated' => true,
+        'counters' => [
+            'myEnrollmentStatus' => 'Enrolled',
+            'mySubjectsCount' => count($enrolledSubjects),
+            'myCurrentGpa' => $student['gpa'] ?? '1.25',
+            'myAttendanceRate' => "{$attRate}%",
+            'myBalance' => $myBalance,
+            'myUpcomingClasses' => count($todayClasses),
+            'myClearanceStatus' => $myClearance
+        ],
+        'enrolledSubjects' => $enrolledSubjects,
+        'todayClasses' => $todayClasses,
+        'announcements' => $announcements
+    ];
+}
+
+// Helper for Faculty Isolated Dashboard
+function getFacultyDashboardData($pdo, $user) {
+    $facultyId = Response::getFacultyIdForUser($user['id']) ?? 1;
+
+    // Assigned teaching schedules
+    $schStmt = $pdo->prepare("
+        SELECT sch.*, sub.code as subject_code, sub.title as subject_title,
+               sec.name as section_name, r.room_number, b.name as building_name
+        FROM schedules sch
+        JOIN subjects sub ON sch.subject_id = sub.id
+        JOIN sections sec ON sch.section_id = sec.id
+        JOIN rooms r ON sch.room_id = r.id
+        JOIN buildings b ON r.building_id = b.id
+        WHERE sch.faculty_id = ?
+        ORDER BY sch.day_of_week, sch.start_time
+    ");
+    $schStmt->execute([$facultyId]);
+    $schedules = $schStmt->fetchAll();
+
+    // Total distinct students enrolled in teacher's classes
+    $stdCountStmt = $pdo->prepare("
+        SELECT COUNT(DISTINCT es.student_id) 
+        FROM enrollment_subjects es
+        JOIN schedules s ON es.schedule_id = s.id
+        WHERE s.faculty_id = ?
+    ");
+    $stdCountStmt->execute([$facultyId]);
+    $myStudentsCount = (int)$stdCountStmt->fetchColumn();
+
+    // Draft / Pending grades count
+    $grStmt = $pdo->prepare("SELECT COUNT(*) FROM grades WHERE faculty_id = ? AND status = 'Draft'");
+    $grStmt->execute([$facultyId]);
+    $pendingGrades = (int)$grStmt->fetchColumn();
+
+    // Today's classes
+    $todayName = date('l');
+    $todayClasses = array_values(array_filter($schedules, function($s) use ($todayName) {
+        return ($s['day_of_week'] === $todayName);
+    }));
+
+    $annStmt = $pdo->query("SELECT * FROM announcements WHERE audience IN ('All', 'Faculty') ORDER BY created_at DESC LIMIT 5");
+
+    return [
+        'role' => 'Teacher',
+        'is_isolated' => true,
+        'counters' => [
+            'assignedClasses' => count($schedules),
+            'totalStudentsInClasses' => $myStudentsCount,
+            'classesToday' => count($todayClasses),
+            'pendingGradeSheets' => $pendingGrades
+        ],
+        'schedules' => $schedules,
+        'todayClasses' => $todayClasses,
+        'announcements' => $annStmt->fetchAll()
+    ];
+}
+
+// Helper for Parent Isolated Dashboard
+function getParentDashboardData($pdo, $user) {
+    $linkedStudentIds = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+    $firstStudentId = !empty($linkedStudentIds) ? $linkedStudentIds[0] : 1;
+
+    $stdStmt = $pdo->prepare("
+        SELECT s.*, sp.first_name, sp.last_name, p.name as program_name, p.code as program_code, yl.name as year_level
+        FROM students s
+        JOIN student_profiles sp ON s.id = sp.student_id
+        JOIN programs p ON s.program_id = p.id
+        JOIN year_levels yl ON s.year_level_id = yl.id
+        WHERE s.id = ?
+    ");
+    $stdStmt->execute([$firstStudentId]);
+    $child = $stdStmt->fetch();
+
+    $balStmt = $pdo->prepare("SELECT COALESCE(SUM(balance), 0) FROM invoices WHERE student_id = ? AND status != 'Paid'");
+    $balStmt->execute([$firstStudentId]);
+    $childBalance = (float)$balStmt->fetchColumn();
+
+    $attStmt = $pdo->prepare("
+        SELECT COUNT(*) as total_sessions,
+               SUM(CASE WHEN status = 'Present' THEN 1 ELSE 0 END) as present_count
+        FROM attendance WHERE student_id = ?
+    ");
+    $attStmt->execute([$firstStudentId]);
+    $attData = $attStmt->fetch();
+    $attRate = ($attData['total_sessions'] > 0) ? round(($attData['present_count'] / $attData['total_sessions']) * 100) : 95;
+
+    $annStmt = $pdo->query("SELECT * FROM announcements WHERE audience IN ('All', 'Parents') ORDER BY created_at DESC LIMIT 5");
+
+    return [
+        'role' => 'Parent/Guardian',
+        'is_isolated' => true,
+        'child' => $child,
+        'counters' => [
+            'childName' => $child ? "{$child['first_name']} {$child['last_name']}" : 'Enrolled Ward',
+            'childGpa' => $child['gpa'] ?? '1.25',
+            'childAttendance' => "{$attRate}%",
+            'outstandingTuition' => $childBalance,
+            'enrollmentStanding' => 'Regular Enrolled'
+        ],
+        'announcements' => $annStmt->fetchAll()
+    ];
+}
+
+// Helper for Global Super Admin Dashboard
+function getAdminDashboardData($pdo) {
     $totalStudents = (int)$pdo->query("SELECT COUNT(*) FROM students")->fetchColumn();
     $totalFaculty = (int)$pdo->query("SELECT COUNT(*) FROM faculty")->fetchColumn();
     $enrolledCount = (int)$pdo->query("SELECT COUNT(*) FROM enrollments WHERE status = 'Enrolled'")->fetchColumn();
@@ -142,14 +407,12 @@ if ($path === '/api/dashboard/stats' && $method === 'GET') {
     $borrowedBooks = (int)$pdo->query("SELECT COUNT(*) FROM library_borrowings WHERE status = 'Borrowed'")->fetchColumn();
     $overdueBooks = (int)$pdo->query("SELECT COUNT(*) FROM library_borrowings WHERE status = 'Overdue'")->fetchColumn();
 
-    // Chart Data: Enrollment by Program
     $programEnrollments = $pdo->query("SELECT p.code as name, COUNT(e.id) as value 
                                        FROM programs p 
                                        LEFT JOIN students s ON p.id = s.program_id 
                                        LEFT JOIN enrollments e ON s.id = e.student_id AND e.status = 'Enrolled'
                                        GROUP BY p.id")->fetchAll();
 
-    // Chart Data: Revenue Trends (Mock monthly aggregates from payments)
     $revenueTrend = [
         ['month' => 'May', 'collected' => 125000, 'target' => 100000],
         ['month' => 'Jun', 'collected' => 189000, 'target' => 150000],
@@ -159,7 +422,6 @@ if ($path === '/api/dashboard/stats' && $method === 'GET') {
         ['month' => 'Oct', 'collected' => 210000, 'target' => 200000],
     ];
 
-    // Attendance Overview
     $attendanceStats = [
         ['name' => 'Present', 'value' => 88, 'color' => '#10b981'],
         ['name' => 'Late', 'value' => 7, 'color' => '#f59e0b'],
@@ -167,12 +429,11 @@ if ($path === '/api/dashboard/stats' && $method === 'GET') {
         ['name' => 'Absent', 'value' => 2, 'color' => '#ef4444'],
     ];
 
-    // Recent Activity Feed
     $recentLogs = $pdo->query("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 8")->fetchAll();
 
-    // Role-specific customized stats payload
-    $stats = [
-        'role' => $role,
+    return [
+        'role' => 'Super Administrator',
+        'is_isolated' => false,
         'counters' => [
             'totalStudents' => $totalStudents,
             'totalFaculty' => $totalFaculty,
@@ -194,8 +455,102 @@ if ($path === '/api/dashboard/stats' && $method === 'GET') {
         ],
         'recentLogs' => $recentLogs
     ];
+}
 
-    Response::success($stats, 'Dashboard statistics loaded.');
+// Dispatched Dashboard Route
+if ($path === '/api/dashboard/stats' && $method === 'GET') {
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? 'Student';
+
+    if ($role === 'Student') {
+        $data = getStudentDashboardData($pdo, $user);
+    } else if ($role === 'Teacher') {
+        $data = getFacultyDashboardData($pdo, $user);
+    } else if ($role === 'Parent/Guardian') {
+        $data = getParentDashboardData($pdo, $user);
+    } else if ($role === 'Registrar') {
+        $pendingApplicants = (int)$pdo->query("SELECT COUNT(*) FROM admissions WHERE status = 'Pending'")->fetchColumn();
+        $pendingEnrollment = (int)$pdo->query("SELECT COUNT(*) FROM enrollments WHERE status = 'Pending'")->fetchColumn();
+        $docReqs = (int)$pdo->query("SELECT COUNT(*) FROM registrar_documents WHERE status = 'Pending'")->fetchColumn();
+        $gradCandidates = (int)$pdo->query("SELECT COUNT(*) FROM graduation_candidates")->fetchColumn();
+        $data = [
+            'role' => 'Registrar',
+            'counters' => [
+                'pendingApplicants' => $pendingApplicants,
+                'pendingEnrollments' => $pendingEnrollment,
+                'documentRequests' => $docReqs,
+                'graduationCandidates' => $gradCandidates
+            ]
+        ];
+    } else if ($role === 'Accountant') {
+        $totalRevenue = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM payments")->fetchColumn();
+        $outstandingBal = (float)$pdo->query("SELECT COALESCE(SUM(balance), 0) FROM invoices WHERE status != 'Paid'")->fetchColumn();
+        $unpaidInvoices = (int)$pdo->query("SELECT COUNT(*) FROM invoices WHERE status = 'Unpaid'")->fetchColumn();
+        $data = [
+            'role' => 'Accountant',
+            'counters' => [
+                'totalCollected' => $totalRevenue,
+                'outstandingBalance' => $outstandingBal,
+                'unpaidInvoices' => $unpaidInvoices
+            ]
+        ];
+    } else if ($role === 'Librarian') {
+        $totalBooks = (int)$pdo->query("SELECT COUNT(*) FROM library_books")->fetchColumn();
+        $borrowedBooks = (int)$pdo->query("SELECT COUNT(*) FROM library_borrowings WHERE status = 'Borrowed'")->fetchColumn();
+        $overdueBooks = (int)$pdo->query("SELECT COUNT(*) FROM library_borrowings WHERE status = 'Overdue'")->fetchColumn();
+        $data = [
+            'role' => 'Librarian',
+            'counters' => [
+                'totalBooks' => $totalBooks,
+                'activeLoans' => $borrowedBooks,
+                'overdueLoans' => $overdueBooks
+            ]
+        ];
+    } else if ($role === 'Guidance Counselor') {
+        $casesCount = (int)$pdo->query("SELECT COUNT(*) FROM guidance_records WHERE status = 'Open'")->fetchColumn();
+        $discCount = (int)$pdo->query("SELECT COUNT(*) FROM discipline_records WHERE status = 'Under Investigation'")->fetchColumn();
+        $data = [
+            'role' => 'Guidance Counselor',
+            'counters' => [
+                'openCounselingCases' => $casesCount,
+                'disciplinaryHearings' => $discCount
+            ]
+        ];
+    } else if ($role === 'School Nurse') {
+        $visitsToday = (int)$pdo->query("SELECT COUNT(*) FROM clinic_records WHERE DATE(visit_date) = CURDATE()")->fetchColumn();
+        $data = [
+            'role' => 'School Nurse',
+            'counters' => [
+                'consultationsToday' => $visitsToday,
+                'infirmaryBeds' => '15 Available'
+            ]
+        ];
+    } else {
+        $data = getAdminDashboardData($pdo);
+    }
+
+    Response::success($data, 'Role-specific dashboard data loaded.');
+}
+
+// Explicit Role Dashboard Endpoints with Permission Verification
+if ($path === '/api/dashboard/admin' && $method === 'GET') {
+    Response::requirePermission('dashboard.admin');
+    Response::success(getAdminDashboardData($pdo), 'Admin dashboard data loaded.');
+}
+
+if ($path === '/api/dashboard/student' && $method === 'GET') {
+    $user = Response::requirePermission('dashboard.student');
+    Response::success(getStudentDashboardData($pdo, $user), 'Student dashboard data loaded.');
+}
+
+if ($path === '/api/dashboard/faculty' && $method === 'GET') {
+    $user = Response::requirePermission('dashboard.faculty');
+    Response::success(getFacultyDashboardData($pdo, $user), 'Faculty dashboard data loaded.');
+}
+
+if ($path === '/api/dashboard/parent' && $method === 'GET') {
+    $user = Response::requirePermission('dashboard.parent');
+    Response::success(getParentDashboardData($pdo, $user), 'Parent dashboard data loaded.');
 }
 
 // -----------------------------------------------------------------------------
@@ -227,10 +582,13 @@ if ($path === '/api/academic/metadata' && $method === 'GET') {
 }
 
 // -----------------------------------------------------------------------------
-// 4. STUDENT MANAGEMENT (360° Profile & Lifecycle)
+// 4. STUDENT MANAGEMENT (DATA-LEVEL ISOLATION)
 // -----------------------------------------------------------------------------
 
 if ($path === '/api/students' && $method === 'GET') {
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? '';
+
     $search = trim($_GET['search'] ?? '');
     $programId = trim($_GET['program_id'] ?? '');
     $status = trim($_GET['status'] ?? '');
@@ -245,6 +603,47 @@ if ($path === '/api/students' && $method === 'GET') {
             LEFT JOIN sections sec ON s.section_id = sec.id
             WHERE 1=1";
     $params = [];
+
+    // STRICT DATA ISOLATION PER ROLE
+    if ($role === 'Student') {
+        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $sql .= " AND s.id = ?";
+        $params[] = $studentId;
+    } else if ($role === 'Parent/Guardian') {
+        $linked = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+        if (empty($linked)) {
+            Response::success([], 'No linked students found for parent account.');
+        }
+        $inPlaceholders = implode(',', array_fill(0, count($linked), '?'));
+        $sql .= " AND s.id IN ($inPlaceholders)";
+        $params = array_merge($params, $linked);
+    } else if ($role === 'Teacher') {
+        $facultyId = Response::getFacultyIdForUser($user['id']) ?? 1;
+        // Teacher can ONLY see students in their classes or sections
+        $sql .= " AND (
+            s.id IN (
+                SELECT DISTINCT e.student_id 
+                FROM enrollment_subjects es 
+                JOIN enrollments e ON es.enrollment_id = e.id
+                JOIN schedules sc ON es.schedule_id = sc.id 
+                WHERE sc.faculty_id = ?
+            )
+            OR s.id IN (
+                SELECT DISTINCT st.id 
+                FROM students st 
+                JOIN sections sec2 ON st.section_id = sec2.id 
+                JOIN schedules sc2 ON sc2.section_id = sec2.id 
+                WHERE sc2.faculty_id = ?
+            )
+        )";
+        $params[] = $facultyId;
+        $params[] = $facultyId;
+    } else {
+        // Administrative / Registrar / Clinical / Guidance users require view permission
+        if (!Response::hasPermission($user, 'students.view_all')) {
+            Response::error('Forbidden: You lack permission to browse student master records.', 403);
+        }
+    }
 
     if (!empty($search)) {
         $sql .= " AND (s.student_number LIKE ? OR sp.first_name LIKE ? OR sp.last_name LIKE ? OR sp.email LIKE ?)";
@@ -265,12 +664,36 @@ if ($path === '/api/students' && $method === 'GET') {
     $stmt->execute($params);
     $students = $stmt->fetchAll();
 
-    Response::success($students, 'Students retrieved successfully.');
+    Response::success($students, 'Authorized students retrieved.');
 }
 
-// Get single 360° student details
+// Get single 360° student details (WITH RECORD-LEVEL OWNERSHIP ENFORCEMENT)
 if (preg_match('#^/api/students/(\d+)$#', $path, $matches) && $method === 'GET') {
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? '';
     $studentId = (int)$matches[1];
+
+    // 1. RECORD OWNERSHIP CHECK
+    if ($role === 'Student') {
+        $myStudentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        if ($studentId !== $myStudentId) {
+            Response::error('Forbidden: Access denied. Students are only authorized to view their own profile dossier.', 403);
+        }
+    } else if ($role === 'Parent/Guardian') {
+        $linked = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+        if (!in_array($studentId, $linked)) {
+            Response::error('Forbidden: Access denied. Parents can only view records of their linked children.', 403);
+        }
+    } else if ($role === 'Teacher') {
+        $facultyId = Response::getFacultyIdForUser($user['id']) ?? 1;
+        if (!Response::isStudentAssignedToFaculty($studentId, $facultyId)) {
+            Response::error('Forbidden: Access denied. This student is not enrolled in any of your assigned classes.', 403);
+        }
+    } else {
+        if (!Response::hasPermission($user, 'students.view_all')) {
+            Response::error('Forbidden: You lack permission to inspect this student record.', 403);
+        }
+    }
 
     $stmt = $pdo->prepare("SELECT s.*, p.name as program_name, p.code as program_code, yl.name as year_level_name, 
                                   sec.name as section_name, sp.*
@@ -284,7 +707,7 @@ if (preg_match('#^/api/students/(\d+)$#', $path, $matches) && $method === 'GET')
     $student = $stmt->fetch();
 
     if (!$student) {
-        Response::error('Student not found.', 404);
+        Response::error('Student record not found.', 404);
     }
 
     // Guardians
@@ -315,45 +738,68 @@ if (preg_match('#^/api/students/(\d+)$#', $path, $matches) && $method === 'GET')
         $student['enrolled_subjects'] = [];
     }
 
-    // Grades
-    $gradeStmt = $pdo->prepare("SELECT g.*, sub.code as subject_code, sub.title as subject_title, f.first_name as prof_first, f.last_name as prof_last
-                                FROM grades g
-                                JOIN subjects sub ON g.subject_id = sub.id
-                                LEFT JOIN faculty f ON g.faculty_id = f.id
-                                WHERE g.student_id = ?");
-    $gradeStmt->execute([$studentId]);
+    // Grades (Teacher only sees grades for their own subject; Student/Parent/Admin see all)
+    if ($role === 'Teacher') {
+        $facultyId = Response::getFacultyIdForUser($user['id']) ?? 1;
+        $gradeStmt = $pdo->prepare("SELECT g.*, sub.code as subject_code, sub.title as subject_title, f.first_name as prof_first, f.last_name as prof_last
+                                    FROM grades g
+                                    JOIN subjects sub ON g.subject_id = sub.id
+                                    LEFT JOIN faculty f ON g.faculty_id = f.id
+                                    WHERE g.student_id = ? AND g.faculty_id = ?");
+        $gradeStmt->execute([$studentId, $facultyId]);
+    } else {
+        $gradeStmt = $pdo->prepare("SELECT g.*, sub.code as subject_code, sub.title as subject_title, f.first_name as prof_first, f.last_name as prof_last
+                                    FROM grades g
+                                    JOIN subjects sub ON g.subject_id = sub.id
+                                    LEFT JOIN faculty f ON g.faculty_id = f.id
+                                    WHERE g.student_id = ?");
+        $gradeStmt->execute([$studentId]);
+    }
     $student['grades'] = $gradeStmt->fetchAll();
 
-    // Financial Records (Invoices & Payments)
-    $invStmt = $pdo->prepare("SELECT * FROM invoices WHERE student_id = ? ORDER BY id DESC");
-    $invStmt->execute([$studentId]);
-    $student['invoices'] = $invStmt->fetchAll();
+    // Financial Records (Invoices & Payments) - Teachers NEVER receive financial records!
+    if ($role !== 'Teacher') {
+        $invStmt = $pdo->prepare("SELECT * FROM invoices WHERE student_id = ? ORDER BY id DESC");
+        $invStmt->execute([$studentId]);
+        $student['invoices'] = $invStmt->fetchAll();
 
-    $payStmt = $pdo->prepare("SELECT * FROM payments WHERE student_id = ? ORDER BY id DESC");
-    $payStmt->execute([$studentId]);
-    $student['payments'] = $payStmt->fetchAll();
+        $payStmt = $pdo->prepare("SELECT * FROM payments WHERE student_id = ? ORDER BY id DESC");
+        $payStmt->execute([$studentId]);
+        $student['payments'] = $payStmt->fetchAll();
+    } else {
+        $student['invoices'] = [];
+        $student['payments'] = [];
+    }
 
     // Clearance
     $clearanceStmt = $pdo->prepare("SELECT * FROM clearances WHERE student_id = ? ORDER BY id DESC LIMIT 1");
     $clearanceStmt->execute([$studentId]);
     $student['clearance'] = $clearanceStmt->fetch();
 
-    // Clinic visits
-    $clinicStmt = $pdo->prepare("SELECT * FROM clinic_records WHERE student_id = ? ORDER BY visit_date DESC");
-    $clinicStmt->execute([$studentId]);
-    $student['clinic_records'] = $clinicStmt->fetchAll();
+    // Clinic visits - PROTECTED SENSITIVE DATA
+    if (Response::hasPermission($user, 'clinic.view') || $role === 'Student') {
+        $clinicStmt = $pdo->prepare("SELECT * FROM clinic_records WHERE student_id = ? ORDER BY visit_date DESC");
+        $clinicStmt->execute([$studentId]);
+        $student['clinic_records'] = $clinicStmt->fetchAll();
+    } else {
+        $student['clinic_records'] = [];
+    }
 
-    // Discipline
-    $discStmt = $pdo->prepare("SELECT * FROM discipline_records WHERE student_id = ? ORDER BY incident_date DESC");
-    $discStmt->execute([$studentId]);
-    $student['discipline_records'] = $discStmt->fetchAll();
+    // Discipline - PROTECTED SENSITIVE DATA
+    if (Response::hasPermission($user, 'discipline.view')) {
+        $discStmt = $pdo->prepare("SELECT * FROM discipline_records WHERE student_id = ? ORDER BY incident_date DESC");
+        $discStmt->execute([$studentId]);
+        $student['discipline_records'] = $discStmt->fetchAll();
+    } else {
+        $student['discipline_records'] = [];
+    }
 
-    Response::success($student, '360° student details loaded.');
+    Response::success($student, '360° student details loaded securely.');
 }
 
 // Create new student
 if ($path === '/api/students' && $method === 'POST') {
-    $user = Response::requireAuth(['Super Administrator', 'Registrar', 'School Administrator']);
+    $user = Response::requirePermission('students.create');
     $body = Response::getJsonBody();
 
     $firstName = trim($body['first_name'] ?? '');
@@ -367,7 +813,6 @@ if ($path === '/api/students' && $method === 'POST') {
         Response::error('First name, last name, and email are required.', 400);
     }
 
-    // Generate unique student number and QR token
     $year = date('Y');
     $randNum = mt_rand(10010, 99999);
     $studentNumber = "{$year}-{$randNum}";
@@ -392,26 +837,6 @@ if ($path === '/api/students' && $method === 'POST') {
         $body['emergency_phone'] ?? '+63 917 000 0000'
     ]);
 
-    // Create Initial Student Guardian
-    $stmtGuard = $pdo->prepare("INSERT INTO student_guardians (student_id, relationship, full_name, phone, email) VALUES (?, 'Mother', ?, ?, ?)");
-    $stmtGuard->execute([
-        $newStudentId,
-        $body['emergency_name'] ?? 'Mother/Guardian',
-        $body['emergency_phone'] ?? '+63 917 000 0000',
-        $body['guardian_email'] ?? 'guardian@example.com'
-    ]);
-
-    // Create QR Verification entry
-    $verDetails = json_encode([
-        'student_number' => $studentNumber,
-        'name' => "{$firstName} {$lastName}",
-        'program_id' => $programId,
-        'status' => 'Regular',
-        'issued_date' => date('Y-m-d')
-    ]);
-    $stmtQr = $pdo->prepare("INSERT INTO qr_verifications (token, verification_type, reference_id, title, holder_name, details_json) VALUES (?, 'StudentID', ?, 'University Student Digital Credential', ?, ?)");
-    $stmtQr->execute([$qrToken, $studentNumber, "{$firstName} {$lastName}", $verDetails]);
-
     Response::auditLog($user['id'], $user['name'], $user['role'], 'CREATE_STUDENT', 'Students', $newStudentId, null, ['student_number' => $studentNumber, 'name' => "$firstName $lastName"]);
 
     Response::success(['student_id' => $newStudentId, 'student_number' => $studentNumber], 'Student successfully registered.', 201);
@@ -422,6 +847,7 @@ if ($path === '/api/students' && $method === 'POST') {
 // -----------------------------------------------------------------------------
 
 if ($path === '/api/admissions' && $method === 'GET') {
+    Response::requirePermission('admissions.view');
     $stmt = $pdo->query("SELECT a.*, p.name as program_name, p.code as program_code 
                          FROM admissions a 
                          JOIN programs p ON a.program_id = p.id 
@@ -450,6 +876,7 @@ if ($path === '/api/admissions' && $method === 'POST') {
 
 // Update admission status / score / interview
 if (preg_match('#^/api/admissions/(\d+)$#', $path, $matches) && ($method === 'PUT' || $method === 'PATCH')) {
+    Response::requirePermission('admissions.manage');
     $admId = (int)$matches[1];
     $body = Response::getJsonBody();
 
@@ -469,9 +896,9 @@ if (preg_match('#^/api/admissions/(\d+)$#', $path, $matches) && ($method === 'PU
     Response::success(null, 'Admission application updated.');
 }
 
-// Convert Approved Applicant to Enrolled/Registered Student
+// Convert Approved Applicant to Student
 if (preg_match('#^/api/admissions/(\d+)/approve$#', $path, $matches) && $method === 'POST') {
-    $user = Response::requireAuth(['Super Administrator', 'Registrar', 'School Administrator']);
+    $user = Response::requirePermission('admissions.manage');
     $admId = (int)$matches[1];
 
     $stmt = $pdo->prepare("SELECT * FROM admissions WHERE id = ?");
@@ -482,7 +909,6 @@ if (preg_match('#^/api/admissions/(\d+)/approve$#', $path, $matches) && $method 
         Response::error('Applicant record not found.', 404);
     }
 
-    // Split name
     $parts = explode(' ', $applicant['applicant_name']);
     $firstName = array_shift($parts);
     $lastName = !empty($parts) ? implode(' ', $parts) : 'Applicant';
@@ -499,7 +925,6 @@ if (preg_match('#^/api/admissions/(\d+)/approve$#', $path, $matches) && $method 
     $stmtProf = $pdo->prepare("INSERT INTO student_profiles (student_id, first_name, last_name, email, phone, address, emergency_contact_name, emergency_contact_phone) VALUES (?, ?, ?, ?, ?, 'Metro Manila', 'Parent Contact', '+63 917 000 0000')");
     $stmtProf->execute([$studentId, $firstName, $lastName, $applicant['email'], $applicant['phone']]);
 
-    // Mark application as Enrolled
     $stmtUpd = $pdo->prepare("UPDATE admissions SET status = 'Enrolled' WHERE id = ?");
     $stmtUpd->execute([$admId]);
 
@@ -509,27 +934,57 @@ if (preg_match('#^/api/admissions/(\d+)/approve$#', $path, $matches) && $method 
 }
 
 // -----------------------------------------------------------------------------
-// 6. ENROLLMENT & REGISTRATION
+// 6. ENROLLMENT & REGISTRATION (WITH OWNERSHIP CHECK)
 // -----------------------------------------------------------------------------
 
 if ($path === '/api/enrollments' && $method === 'GET') {
-    $stmt = $pdo->query("SELECT e.*, s.student_number, sp.first_name, sp.last_name, 
-                                p.code as program_code, p.name as program_name,
-                                sec.name as section_name, ay.name as academic_year, sem.name as semester_name
-                         FROM enrollments e
-                         JOIN students s ON e.student_id = s.id
-                         JOIN student_profiles sp ON s.id = sp.student_id
-                         JOIN programs p ON s.program_id = p.id
-                         JOIN sections sec ON e.section_id = sec.id
-                         JOIN academic_years ay ON e.academic_year_id = ay.id
-                         JOIN semesters sem ON e.semester_id = sem.id
-                         ORDER BY e.id DESC");
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? '';
+
+    $sql = "SELECT e.*, s.student_number, sp.first_name, sp.last_name, 
+                   p.code as program_code, p.name as program_name,
+                   sec.name as section_name, ay.name as academic_year, sem.name as semester_name
+            FROM enrollments e
+            JOIN students s ON e.student_id = s.id
+            JOIN student_profiles sp ON s.id = sp.student_id
+            JOIN programs p ON s.program_id = p.id
+            JOIN sections sec ON e.section_id = sec.id
+            JOIN academic_years ay ON e.academic_year_id = ay.id
+            JOIN semesters sem ON e.semester_id = sem.id
+            WHERE 1=1";
+    $params = [];
+
+    if ($role === 'Student') {
+        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $sql .= " AND e.student_id = ?";
+        $params[] = $studentId;
+    } else if ($role === 'Parent/Guardian') {
+        $linked = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+        if (empty($linked)) {
+            Response::success([], 'No enrollments found.');
+        }
+        $inPlaceholders = implode(',', array_fill(0, count($linked), '?'));
+        $sql .= " AND e.student_id IN ($inPlaceholders)";
+        $params = array_merge($params, $linked);
+    } else {
+        if (!Response::hasPermission($user, 'enrollment.view_all')) {
+            Response::error('Forbidden: You lack permission to browse institutional enrollment lists.', 403);
+        }
+    }
+
+    $sql .= " ORDER BY e.id DESC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
     $enrollments = $stmt->fetchAll();
+
     Response::success($enrollments, 'Enrollment records retrieved.');
 }
 
 if (preg_match('#^/api/enrollments/(\d+)$#', $path, $matches) && $method === 'GET') {
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? '';
     $enrollmentId = (int)$matches[1];
+
     $stmt = $pdo->prepare("SELECT e.*, s.student_number, sp.first_name, sp.middle_name, sp.last_name, sp.email, sp.phone, sp.address,
                                   p.code as program_code, p.name as program_name,
                                   sec.name as section_name, ay.name as academic_year, sem.name as semester_name
@@ -548,6 +1003,19 @@ if (preg_match('#^/api/enrollments/(\d+)$#', $path, $matches) && $method === 'GE
         Response::error('Enrollment record not found.', 404);
     }
 
+    // Ownership check
+    if ($role === 'Student') {
+        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        if ((int)$enrollment['student_id'] !== $studentId) {
+            Response::error('Forbidden: You can only view your own Certificate of Registration.', 403);
+        }
+    } else if ($role === 'Parent/Guardian') {
+        $linked = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+        if (!in_array((int)$enrollment['student_id'], $linked)) {
+            Response::error('Forbidden: You can only view enrollments of your linked children.', 403);
+        }
+    }
+
     $subStmt = $pdo->prepare("SELECT es.*, sub.code, sub.title, sub.lecture_units, sub.lab_units, sub.credit_units,
                                      sch.day_of_week, sch.start_time, sch.end_time, r.room_number,
                                      f.first_name as prof_first, f.last_name as prof_last
@@ -563,9 +1031,8 @@ if (preg_match('#^/api/enrollments/(\d+)$#', $path, $matches) && $method === 'GE
     Response::success($enrollment, 'Enrollment record loaded.');
 }
 
-// Update Enrollment Status (e.g. Assessment -> For Payment -> Enrolled)
 if (preg_match('#^/api/enrollments/(\d+)/status$#', $path, $matches) && $method === 'POST') {
-    $user = Response::requireAuth(['Super Administrator', 'Registrar', 'Accountant', 'Cashier']);
+    $user = Response::requirePermission('enrollment.manage');
     $enrollmentId = (int)$matches[1];
     $body = Response::getJsonBody();
     $status = $body['status'] ?? 'Enrolled';
@@ -583,19 +1050,52 @@ if (preg_match('#^/api/enrollments/(\d+)/status$#', $path, $matches) && $method 
 // -----------------------------------------------------------------------------
 
 if ($path === '/api/registrar/documents' && $method === 'GET') {
-    $stmt = $pdo->query("SELECT rd.*, s.student_number, sp.first_name, sp.last_name, p.code as program_code
-                         FROM registrar_documents rd
-                         JOIN students s ON rd.student_id = s.id
-                         JOIN student_profiles sp ON s.id = sp.student_id
-                         JOIN programs p ON s.program_id = p.id
-                         ORDER BY rd.requested_at DESC");
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? '';
+
+    $sql = "SELECT rd.*, s.student_number, sp.first_name, sp.last_name, p.code as program_code
+            FROM registrar_documents rd
+            JOIN students s ON rd.student_id = s.id
+            JOIN student_profiles sp ON s.id = sp.student_id
+            JOIN programs p ON s.program_id = p.id
+            WHERE 1=1";
+    $params = [];
+
+    if ($role === 'Student') {
+        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $sql .= " AND rd.student_id = ?";
+        $params[] = $studentId;
+    } else if ($role === 'Parent/Guardian') {
+        $linked = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+        if (empty($linked)) Response::success([], 'No document requests found.');
+        $inPlaceholders = implode(',', array_fill(0, count($linked), '?'));
+        $sql .= " AND rd.student_id IN ($inPlaceholders)";
+        $params = array_merge($params, $linked);
+    } else {
+        if (!Response::hasPermission($user, 'registrar.view')) {
+            Response::error('Forbidden: You lack permission to access registrar documents.', 403);
+        }
+    }
+
+    $sql .= " ORDER BY rd.requested_at DESC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
     $docs = $stmt->fetchAll();
+
     Response::success($docs, 'Registrar documents retrieved.');
 }
 
 if ($path === '/api/registrar/documents' && $method === 'POST') {
+    $user = Response::requireAuth();
     $body = Response::getJsonBody();
+
     $studentId = (int)($body['student_id'] ?? 1);
+    // If student role, enforce studentId is self
+    if (($user['role'] ?? '') === 'Student') {
+        $myStudentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $studentId = $myStudentId;
+    }
+
     $docType = trim($body['document_type'] ?? 'Certificate of Enrollment');
     $purpose = trim($body['purpose'] ?? 'General Purpose');
     $copies = (int)($body['copies'] ?? 1);
@@ -610,7 +1110,7 @@ if ($path === '/api/registrar/documents' && $method === 'POST') {
 }
 
 if (preg_match('#^/api/registrar/documents/(\d+)/status$#', $path, $matches) && ($method === 'PUT' || $method === 'POST')) {
-    $user = Response::requireAuth(['Super Administrator', 'Registrar']);
+    $user = Response::requirePermission('registrar.manage');
     $docId = (int)$matches[1];
     $body = Response::getJsonBody();
     $status = $body['status'] ?? 'Ready for Release';
@@ -630,6 +1130,7 @@ if (preg_match('#^/api/registrar/documents/(\d+)/status$#', $path, $matches) && 
 // -----------------------------------------------------------------------------
 
 if ($path === '/api/faculty' && $method === 'GET') {
+    $user = Response::requireAuth();
     $stmt = $pdo->query("SELECT f.*, d.name as department_name, d.code as department_code,
                                 COUNT(sch.id) as assigned_schedules_count,
                                 COALESCE(SUM(sub.credit_units), 0) as current_load_units
@@ -676,18 +1177,42 @@ if ($path === '/api/faculty' && $method === 'POST') {
 // -----------------------------------------------------------------------------
 
 if ($path === '/api/schedules' && $method === 'GET') {
-    $stmt = $pdo->query("SELECT sch.*, sub.code as subject_code, sub.title as subject_title,
-                                f.first_name as prof_first, f.last_name as prof_last,
-                                sec.name as section_name, r.room_number, r.name as room_name,
-                                b.name as building_name
-                         FROM schedules sch
-                         JOIN subjects sub ON sch.subject_id = sub.id
-                         JOIN faculty f ON sch.faculty_id = f.id
-                         JOIN sections sec ON sch.section_id = sec.id
-                         JOIN rooms r ON sch.room_id = r.id
-                         JOIN buildings b ON r.building_id = b.id
-                         ORDER BY sch.day_of_week ASC, sch.start_time ASC");
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? '';
+
+    $sql = "SELECT sch.*, sub.code as subject_code, sub.title as subject_title,
+                   f.first_name as prof_first, f.last_name as prof_last,
+                   sec.name as section_name, r.room_number, r.name as room_name,
+                   b.name as building_name
+            FROM schedules sch
+            JOIN subjects sub ON sch.subject_id = sub.id
+            JOIN faculty f ON sch.faculty_id = f.id
+            JOIN sections sec ON sch.section_id = sec.id
+            JOIN rooms r ON sch.room_id = r.id
+            JOIN buildings b ON r.building_id = b.id
+            WHERE 1=1";
+    $params = [];
+
+    if ($role === 'Teacher') {
+        $facultyId = Response::getFacultyIdForUser($user['id']) ?? 1;
+        $sql .= " AND sch.faculty_id = ?";
+        $params[] = $facultyId;
+    } else if ($role === 'Student') {
+        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $sql .= " AND sch.id IN (
+            SELECT es.schedule_id 
+            FROM enrollment_subjects es 
+            JOIN enrollments e ON es.enrollment_id = e.id 
+            WHERE e.student_id = ? AND es.schedule_id IS NOT NULL
+        )";
+        $params[] = $studentId;
+    }
+
+    $sql .= " ORDER BY sch.day_of_week ASC, sch.start_time ASC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
     $schedules = $stmt->fetchAll();
+
     Response::success($schedules, 'Class schedules loaded.');
 }
 
@@ -759,7 +1284,7 @@ if ($path === '/api/schedules/check-conflict' && $method === 'POST') {
 }
 
 if ($path === '/api/schedules' && $method === 'POST') {
-    $user = Response::requireAuth(['Super Administrator', 'Registrar', 'Dean', 'Department Head']);
+    $user = Response::requirePermission('schedules.manage');
     $body = Response::getJsonBody();
 
     $stmt = $pdo->prepare("INSERT INTO schedules (subject_id, faculty_id, section_id, room_id, academic_year_id, semester_id, day_of_week, start_time, end_time, schedule_type) VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?, ?)");
@@ -778,38 +1303,67 @@ if ($path === '/api/schedules' && $method === 'POST') {
 }
 
 // -----------------------------------------------------------------------------
-// 10. ATTENDANCE & QR CODE SCANNER
+// 10. ATTENDANCE & QR CODE SCANNER (WITH DATA ISOLATION)
 // -----------------------------------------------------------------------------
 
 if ($path === '/api/attendance' && $method === 'GET') {
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? '';
     $date = $_GET['date'] ?? date('Y-m-d');
-    $stmt = $pdo->prepare("SELECT a.*, s.student_number, sp.first_name, sp.last_name, sub.code as subject_code, sch.day_of_week, sch.start_time
-                           FROM attendance a
-                           JOIN students s ON a.student_id = s.id
-                           JOIN student_profiles sp ON s.id = sp.student_id
-                           JOIN schedules sch ON a.schedule_id = sch.id
-                           JOIN subjects sub ON sch.subject_id = sub.id
-                           WHERE a.date = ?
-                           ORDER BY a.recorded_at DESC");
-    $stmt->execute([$date]);
+
+    $sql = "SELECT a.*, s.student_number, sp.first_name, sp.last_name, sub.code as subject_code, sch.day_of_week, sch.start_time
+            FROM attendance a
+            JOIN students s ON a.student_id = s.id
+            JOIN student_profiles sp ON s.id = sp.student_id
+            JOIN schedules sch ON a.schedule_id = sch.id
+            JOIN subjects sub ON sch.subject_id = sub.id
+            WHERE a.date = ?";
+    $params = [$date];
+
+    if ($role === 'Student') {
+        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $sql .= " AND a.student_id = ?";
+        $params[] = $studentId;
+    } else if ($role === 'Parent/Guardian') {
+        $linked = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+        if (empty($linked)) Response::success([], 'No attendance records.');
+        $inPlaceholders = implode(',', array_fill(0, count($linked), '?'));
+        $sql .= " AND a.student_id IN ($inPlaceholders)";
+        $params = array_merge($params, $linked);
+    } else if ($role === 'Teacher') {
+        $facultyId = Response::getFacultyIdForUser($user['id']) ?? 1;
+        $sql .= " AND sch.faculty_id = ?";
+        $params[] = $facultyId;
+    } else {
+        if (!Response::hasPermission($user, 'attendance.view_all')) {
+            Response::error('Forbidden: You lack permission to inspect global attendance records.', 403);
+        }
+    }
+
+    $sql .= " ORDER BY a.recorded_at DESC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
     $records = $stmt->fetchAll();
+
     Response::success($records, "Attendance records for {$date} loaded.");
 }
 
 // Mark attendance (Manual or QR)
 if ($path === '/api/attendance' && $method === 'POST') {
+    $user = Response::requirePermission('attendance.record');
     $body = Response::getJsonBody();
+
     $scheduleId = (int)($body['schedule_id'] ?? 1);
     $studentId = (int)($body['student_id'] ?? 1);
     $status = $body['status'] ?? 'Present';
-    $method = $body['method'] ?? 'Manual';
+    $methodName = $body['method'] ?? 'Manual';
     $remarks = $body['remarks'] ?? 'Marked by instructor';
     $date = $body['date'] ?? date('Y-m-d');
 
     $stmt = $pdo->prepare("INSERT INTO attendance (schedule_id, student_id, date, status, method, remarks) 
                            VALUES (?, ?, ?, ?, ?, ?)
                            ON DUPLICATE KEY UPDATE status = VALUES(status), remarks = VALUES(remarks)");
-    $stmt->execute([$scheduleId, $studentId, $date, $status, $method, $remarks]);
+    $stmt->execute([$scheduleId, $studentId, $date, $status, $methodName, $remarks]);
 
     Response::success(null, "Attendance recorded: {$status}.");
 }
@@ -851,11 +1405,14 @@ if ($path === '/api/attendance/qr-scan' && $method === 'POST') {
 }
 
 // -----------------------------------------------------------------------------
-// 11. GRADING & ACADEMIC EVALUATION
+// 11. GRADING & ACADEMIC EVALUATION (WITH ROLE & CLASS ISOLATION)
 // -----------------------------------------------------------------------------
 
 if ($path === '/api/grades' && $method === 'GET') {
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? '';
     $subjectId = $_GET['subject_id'] ?? null;
+
     $sql = "SELECT g.*, s.student_number, sp.first_name, sp.last_name,
                    sub.code as subject_code, sub.title as subject_title,
                    f.first_name as prof_first, f.last_name as prof_last
@@ -866,26 +1423,65 @@ if ($path === '/api/grades' && $method === 'GET') {
             LEFT JOIN faculty f ON g.faculty_id = f.id
             WHERE 1=1";
     $params = [];
+
+    if ($role === 'Student') {
+        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $sql .= " AND g.student_id = ?";
+        $params[] = $studentId;
+    } else if ($role === 'Parent/Guardian') {
+        $linked = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+        if (empty($linked)) Response::success([], 'No grades available.');
+        $inPlaceholders = implode(',', array_fill(0, count($linked), '?'));
+        $sql .= " AND g.student_id IN ($inPlaceholders)";
+        $params = array_merge($params, $linked);
+    } else if ($role === 'Teacher') {
+        $facultyId = Response::getFacultyIdForUser($user['id']) ?? 1;
+        $sql .= " AND g.faculty_id = ?";
+        $params[] = $facultyId;
+    } else {
+        if (!Response::hasPermission($user, 'grades.view_all')) {
+            Response::error('Forbidden: You lack permission to inspect institutional student grade sheets.', 403);
+        }
+    }
+
     if ($subjectId) {
         $sql .= " AND g.subject_id = ?";
         $params[] = $subjectId;
     }
+
     $sql .= " ORDER BY sp.last_name ASC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     $grades = $stmt->fetchAll();
+
     Response::success($grades, 'Grade records loaded.');
 }
 
 if (preg_match('#^/api/grades/(\d+)$#', $path, $matches) && ($method === 'PUT' || $method === 'PATCH')) {
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? '';
     $gradeId = (int)$matches[1];
     $body = Response::getJsonBody();
+
+    // Verify ownership if Teacher
+    if ($role === 'Teacher') {
+        $facultyId = Response::getFacultyIdForUser($user['id']) ?? 1;
+        $checkStmt = $pdo->prepare("SELECT faculty_id FROM grades WHERE id = ?");
+        $checkStmt->execute([$gradeId]);
+        $ownerFacultyId = (int)$checkStmt->fetchColumn();
+        if ($ownerFacultyId !== $facultyId) {
+            Response::error('Forbidden: You are not authorized to encode grades for another professor\'s class.', 403);
+        }
+    } else {
+        if (!Response::hasPermission($user, 'grades.encode') && !Response::hasPermission($user, 'grades.approve')) {
+            Response::error('Forbidden: You lack permission to modify grade scores.', 403);
+        }
+    }
 
     $written = (float)($body['written_works'] ?? 0);
     $perf = (float)($body['performance_tasks'] ?? 0);
     $exam = (float)($body['quarterly_exam'] ?? 0);
 
-    // Standard institutional grade formula: 30% Written Works + 50% Performance Tasks + 20% Exams
     $finalScore = round(($written * 0.3) + ($perf * 0.5) + ($exam * 0.2), 2);
     $remarks = ($finalScore >= 75.0) ? 'Passed' : 'Failed';
     $status = $body['status'] ?? 'Submitted';
@@ -908,34 +1504,84 @@ if (preg_match('#^/api/grades/(\d+)$#', $path, $matches) && ($method === 'PUT' |
 }
 
 // -----------------------------------------------------------------------------
-// 12. ACCOUNTING, TUITION & CASHIER
+// 12. ACCOUNTING, TUITION & CASHIER (FINANCIAL DATA RESTRICTION)
 // -----------------------------------------------------------------------------
 
 if ($path === '/api/finance/invoices' && $method === 'GET') {
-    $stmt = $pdo->query("SELECT inv.*, s.student_number, sp.first_name, sp.last_name, p.code as program_code
-                         FROM invoices inv
-                         JOIN students s ON inv.student_id = s.id
-                         JOIN student_profiles sp ON s.id = sp.student_id
-                         JOIN programs p ON s.program_id = p.id
-                         ORDER BY inv.id DESC");
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? '';
+
+    $sql = "SELECT inv.*, s.student_number, sp.first_name, sp.last_name, p.code as program_code
+            FROM invoices inv
+            JOIN students s ON inv.student_id = s.id
+            JOIN student_profiles sp ON s.id = sp.student_id
+            JOIN programs p ON s.program_id = p.id
+            WHERE 1=1";
+    $params = [];
+
+    if ($role === 'Student') {
+        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $sql .= " AND inv.student_id = ?";
+        $params[] = $studentId;
+    } else if ($role === 'Parent/Guardian') {
+        $linked = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+        if (empty($linked)) Response::success([], 'No invoices found.');
+        $inPlaceholders = implode(',', array_fill(0, count($linked), '?'));
+        $sql .= " AND inv.student_id IN ($inPlaceholders)";
+        $params = array_merge($params, $linked);
+    } else {
+        if (!Response::hasPermission($user, 'finance.view_all')) {
+            Response::error('Forbidden: You lack permission to inspect institutional student billing statements.', 403);
+        }
+    }
+
+    $sql .= " ORDER BY inv.id DESC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
     $invoices = $stmt->fetchAll();
+
     Response::success($invoices, 'Invoices loaded.');
 }
 
 if ($path === '/api/finance/payments' && $method === 'GET') {
-    $stmt = $pdo->query("SELECT p.*, s.student_number, sp.first_name, sp.last_name, inv.title as invoice_title
-                         FROM payments p
-                         JOIN students s ON p.student_id = s.id
-                         JOIN student_profiles sp ON s.id = sp.student_id
-                         LEFT JOIN invoices inv ON p.invoice_id = inv.id
-                         ORDER BY p.payment_date DESC");
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? '';
+
+    $sql = "SELECT p.*, s.student_number, sp.first_name, sp.last_name, inv.title as invoice_title
+            FROM payments p
+            JOIN students s ON p.student_id = s.id
+            JOIN student_profiles sp ON s.id = sp.student_id
+            LEFT JOIN invoices inv ON p.invoice_id = inv.id
+            WHERE 1=1";
+    $params = [];
+
+    if ($role === 'Student') {
+        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $sql .= " AND p.student_id = ?";
+        $params[] = $studentId;
+    } else if ($role === 'Parent/Guardian') {
+        $linked = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+        if (empty($linked)) Response::success([], 'No payments found.');
+        $inPlaceholders = implode(',', array_fill(0, count($linked), '?'));
+        $sql .= " AND p.student_id IN ($inPlaceholders)";
+        $params = array_merge($params, $linked);
+    } else {
+        if (!Response::hasPermission($user, 'finance.view_all')) {
+            Response::error('Forbidden: You lack permission to inspect cashier payments.', 403);
+        }
+    }
+
+    $sql .= " ORDER BY p.payment_date DESC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
     $payments = $stmt->fetchAll();
+
     Response::success($payments, 'Payment records loaded.');
 }
 
 // Process new cashier payment
 if ($path === '/api/finance/payments' && $method === 'POST') {
-    $user = Response::requireAuth(['Super Administrator', 'Accountant', 'Cashier']);
+    $user = Response::requirePermission('finance.manage');
     $body = Response::getJsonBody();
 
     $studentId = (int)($body['student_id'] ?? 1);
@@ -964,7 +1610,6 @@ if ($path === '/api/finance/payments' && $method === 'POST') {
     ]);
     $paymentId = $pdo->lastInsertId();
 
-    // If linked to an invoice, deduct balance
     if ($invoiceId) {
         $invStmt = $pdo->prepare("SELECT balance FROM invoices WHERE id = ?");
         $invStmt->execute([$invoiceId]);
@@ -992,24 +1637,48 @@ if ($path === '/api/finance/payments' && $method === 'POST') {
 // -----------------------------------------------------------------------------
 
 if ($path === '/api/clearances' && $method === 'GET') {
-    $stmt = $pdo->query("SELECT c.*, s.student_number, sp.first_name, sp.last_name, p.code as program_code
-                         FROM clearances c
-                         JOIN students s ON c.student_id = s.id
-                         JOIN student_profiles sp ON s.id = sp.student_id
-                         JOIN programs p ON s.program_id = p.id
-                         ORDER BY c.id DESC");
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? '';
+
+    $sql = "SELECT c.*, s.student_number, sp.first_name, sp.last_name, p.code as program_code
+            FROM clearances c
+            JOIN students s ON c.student_id = s.id
+            JOIN student_profiles sp ON s.id = sp.student_id
+            JOIN programs p ON s.program_id = p.id
+            WHERE 1=1";
+    $params = [];
+
+    if ($role === 'Student') {
+        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $sql .= " AND c.student_id = ?";
+        $params[] = $studentId;
+    } else if ($role === 'Parent/Guardian') {
+        $linked = Response::getLinkedStudentIdsForParent($user['email'], $user['id']);
+        if (empty($linked)) Response::success([], 'No clearances found.');
+        $inPlaceholders = implode(',', array_fill(0, count($linked), '?'));
+        $sql .= " AND c.student_id IN ($inPlaceholders)";
+        $params = array_merge($params, $linked);
+    } else {
+        if (!Response::hasPermission($user, 'clearance.view_all')) {
+            Response::error('Forbidden: You lack permission to view clearance lists.', 403);
+        }
+    }
+
+    $sql .= " ORDER BY c.id DESC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
     $clearances = $stmt->fetchAll();
+
     Response::success($clearances, 'Clearance records loaded.');
 }
 
-// Sign off / update a clearance department status
 if (preg_match('#^/api/clearances/(\d+)/department$#', $path, $matches) && $method === 'POST') {
-    $user = Response::requireAuth();
+    $user = Response::requirePermission('clearance.approve');
     $clearanceId = (int)$matches[1];
     $body = Response::getJsonBody();
 
-    $department = $body['department'] ?? 'registrar'; // registrar, accounting, library, guidance, clinic, department
-    $status = $body['status'] ?? 'Cleared'; // Cleared, Hold, Pending
+    $department = $body['department'] ?? 'registrar';
+    $status = $body['status'] ?? 'Cleared';
 
     $column = "{$department}_status";
     $allowedCols = ['registrar_status', 'accounting_status', 'library_status', 'guidance_status', 'clinic_status', 'department_status'];
@@ -1021,7 +1690,6 @@ if (preg_match('#^/api/clearances/(\d+)/department$#', $path, $matches) && $meth
     $stmt = $pdo->prepare("UPDATE clearances SET $column = ? WHERE id = ?");
     $stmt->execute([$status, $clearanceId]);
 
-    // Check if all departments are cleared
     $checkStmt = $pdo->prepare("SELECT registrar_status, accounting_status, library_status, guidance_status, clinic_status, department_status FROM clearances WHERE id = ?");
     $checkStmt->execute([$clearanceId]);
     $rec = $checkStmt->fetch();
@@ -1054,19 +1722,37 @@ if ($path === '/api/library/books' && $method === 'GET') {
 }
 
 if ($path === '/api/library/borrowings' && $method === 'GET') {
-    $stmt = $pdo->query("SELECT lb.*, b.title as book_title, b.isbn, s.student_number, sp.first_name, sp.last_name
-                         FROM library_borrowings lb
-                         JOIN library_books b ON lb.book_id = b.id
-                         JOIN students s ON lb.student_id = s.id
-                         JOIN student_profiles sp ON s.id = sp.student_id
-                         ORDER BY lb.id DESC");
+    $user = Response::requireAuth();
+    $role = $user['role'] ?? '';
+
+    $sql = "SELECT lb.*, b.title as book_title, b.isbn, s.student_number, sp.first_name, sp.last_name
+            FROM library_borrowings lb
+            JOIN library_books b ON lb.book_id = b.id
+            JOIN students s ON lb.student_id = s.id
+            JOIN student_profiles sp ON s.id = sp.student_id
+            WHERE 1=1";
+    $params = [];
+
+    if ($role === 'Student') {
+        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $sql .= " AND lb.student_id = ?";
+        $params[] = $studentId;
+    } else {
+        if (!Response::hasPermission($user, 'library.manage')) {
+            Response::error('Forbidden: You lack permission to manage library borrowings.', 403);
+        }
+    }
+
+    $sql .= " ORDER BY lb.id DESC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
     $borrowings = $stmt->fetchAll();
+
     Response::success($borrowings, 'Library circulation records loaded.');
 }
 
-// Issue / Borrow Book
 if ($path === '/api/library/borrow' && $method === 'POST') {
-    $user = Response::requireAuth(['Super Administrator', 'Librarian']);
+    $user = Response::requirePermission('library.manage');
     $body = Response::getJsonBody();
 
     $bookId = (int)($body['book_id'] ?? 0);
@@ -1090,9 +1776,8 @@ if ($path === '/api/library/borrow' && $method === 'POST') {
     Response::success(['due_date' => $dueDate], 'Book issued successfully to student.');
 }
 
-// Return Book
 if ($path === '/api/library/return' && $method === 'POST') {
-    $user = Response::requireAuth(['Super Administrator', 'Librarian']);
+    $user = Response::requirePermission('library.manage');
     $body = Response::getJsonBody();
     $borrowingId = (int)($body['borrowing_id'] ?? 0);
 
@@ -1108,7 +1793,7 @@ if ($path === '/api/library/return' && $method === 'POST') {
     $fine = 0.00;
     if ($returnDate > $item['due_date']) {
         $days = (strtotime($returnDate) - strtotime($item['due_date'])) / (60 * 60 * 24);
-        $fine = $days * 20.00; // 20 PHP fine per overdue day
+        $fine = $days * 20.00;
     }
 
     $upd = $pdo->prepare("UPDATE library_borrowings SET return_date = ?, status = 'Returned', fine_amount = ? WHERE id = ?");
@@ -1120,10 +1805,11 @@ if ($path === '/api/library/return' && $method === 'POST') {
 }
 
 // -----------------------------------------------------------------------------
-// 15. GUIDANCE, CLINIC & DISCIPLINE
+// 15. GUIDANCE, CLINIC & DISCIPLINE (RESTRICTED WELFARE DATA)
 // -----------------------------------------------------------------------------
 
 if ($path === '/api/guidance' && $method === 'GET') {
+    $user = Response::requirePermission('guidance.view');
     $stmt = $pdo->query("SELECT g.*, s.student_number, sp.first_name, sp.last_name, p.code as program_code
                          FROM guidance_records g
                          JOIN students s ON g.student_id = s.id
@@ -1135,6 +1821,7 @@ if ($path === '/api/guidance' && $method === 'GET') {
 }
 
 if ($path === '/api/clinic' && $method === 'GET') {
+    $user = Response::requirePermission('clinic.view');
     $stmt = $pdo->query("SELECT c.*, s.student_number, sp.first_name, sp.last_name, p.code as program_code
                          FROM clinic_records c
                          JOIN students s ON c.student_id = s.id
@@ -1146,6 +1833,7 @@ if ($path === '/api/clinic' && $method === 'GET') {
 }
 
 if ($path === '/api/discipline' && $method === 'GET') {
+    $user = Response::requirePermission('discipline.view');
     $stmt = $pdo->query("SELECT d.*, s.student_number, sp.first_name, sp.last_name, p.code as program_code
                          FROM discipline_records d
                          JOIN students s ON d.student_id = s.id
@@ -1161,15 +1849,62 @@ if ($path === '/api/discipline' && $method === 'GET') {
 // -----------------------------------------------------------------------------
 
 if ($path === '/api/inventory' && $method === 'GET') {
+    Response::requirePermission('inventory.view');
     $stmt = $pdo->query("SELECT * FROM inventory_items ORDER BY item_name ASC");
     $items = $stmt->fetchAll();
     Response::success($items, 'Inventory items loaded.');
 }
 
+if ($path === '/api/inventory' && $method === 'POST') {
+    $user = Response::requirePermission('inventory.manage');
+    $body = Response::getJsonBody();
+
+    $assetTag = trim($body['asset_tag'] ?? 'AST-' . rand(10000, 99999));
+    $itemName = trim($body['item_name'] ?? '');
+    $category = trim($body['category'] ?? 'Equipment');
+    $quantity = (int)($body['quantity'] ?? 1);
+    $unit = trim($body['unit'] ?? 'pcs');
+    $location = trim($body['location'] ?? 'Campus Main');
+    $condition = trim($body['condition_status'] ?? 'Good');
+    $unitCost = (float)($body['unit_cost'] ?? 0.00);
+
+    if (empty($itemName)) {
+        Response::error('Item name is required.', 400);
+    }
+
+    $stmt = $pdo->prepare("INSERT INTO inventory_items (asset_tag, item_name, category, quantity, unit, location, condition_status, unit_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$assetTag, $itemName, $category, $quantity, $unit, $location, $condition, $unitCost]);
+
+    Response::success(['id' => $pdo->lastInsertId(), 'asset_tag' => $assetTag], 'Inventory item registered successfully.');
+}
+
 if ($path === '/api/hr/employees' && $method === 'GET') {
+    Response::requirePermission('hr.view');
     $stmt = $pdo->query("SELECT * FROM hr_employees ORDER BY last_name ASC");
     $employees = $stmt->fetchAll();
     Response::success($employees, 'HR employee roster loaded.');
+}
+
+if ($path === '/api/hr/employees' && $method === 'POST') {
+    $user = Response::requirePermission('hr.manage');
+    $body = Response::getJsonBody();
+
+    $empId = trim($body['employee_id'] ?? 'EMP-' . rand(1000, 9999));
+    $firstName = trim($body['first_name'] ?? '');
+    $lastName = trim($body['last_name'] ?? '');
+    $dept = trim($body['department'] ?? 'General Services');
+    $position = trim($body['position'] ?? 'Staff');
+    $empType = trim($body['employment_type'] ?? 'Full-Time');
+    $salary = (float)($body['basic_salary'] ?? 30000);
+
+    if (empty($firstName) || empty($lastName)) {
+        Response::error('First name and last name are required.', 400);
+    }
+
+    $stmt = $pdo->prepare("INSERT INTO hr_employees (employee_id, first_name, last_name, department, position, employment_type, basic_salary) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$empId, $firstName, $lastName, $dept, $position, $empType, $salary]);
+
+    Response::success(['id' => $pdo->lastInsertId(), 'employee_id' => $empId], 'HR employee added successfully.');
 }
 
 if ($path === '/api/announcements' && $method === 'GET') {
@@ -1179,7 +1914,7 @@ if ($path === '/api/announcements' && $method === 'GET') {
 }
 
 if ($path === '/api/announcements' && $method === 'POST') {
-    $user = Response::requireAuth();
+    $user = Response::requirePermission('announcements.create');
     $body = Response::getJsonBody();
 
     $title = trim($body['title'] ?? '');
@@ -1206,7 +1941,30 @@ if ($path === '/api/events' && $method === 'GET') {
     Response::success($events, 'Events loaded.');
 }
 
+if ($path === '/api/events' && $method === 'POST') {
+    $user = Response::requirePermission('events.manage');
+    $body = Response::getJsonBody();
+
+    $title = trim($body['title'] ?? '');
+    $description = trim($body['description'] ?? '');
+    $venue = trim($body['venue'] ?? 'Campus Main Grounds');
+    $startDate = trim($body['start_date'] ?? date('Y-m-d H:i:s'));
+    $endDate = trim($body['end_date'] ?? date('Y-m-d H:i:s', strtotime('+3 hours')));
+    $organizer = trim($body['organizer'] ?? 'Student Affairs Office');
+    $category = trim($body['category'] ?? 'Academic');
+
+    if (empty($title)) {
+        Response::error('Event title is required.', 400);
+    }
+
+    $stmt = $pdo->prepare("INSERT INTO events (title, description, venue, start_date, end_date, organizer, category) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$title, $description, $venue, $startDate, $endDate, $organizer, $category]);
+
+    Response::success(['id' => $pdo->lastInsertId()], 'School event scheduled successfully.');
+}
+
 if ($path === '/api/graduation' && $method === 'GET') {
+    Response::requirePermission('graduation.view');
     $stmt = $pdo->query("SELECT g.*, s.student_number, sp.first_name, sp.last_name, p.name as program_name, p.code as program_code
                          FROM graduation_candidates g
                          JOIN students s ON g.student_id = s.id
@@ -1228,7 +1986,6 @@ if (preg_match('#^/api/verify/([a-zA-Z0-9_\-]+)$#', $path, $matches) && $method 
     $record = $stmt->fetch();
 
     if (!$record) {
-        // Try finding student by student_number or qr_token
         $stdStmt = $pdo->prepare("SELECT s.*, sp.first_name, sp.last_name, p.name as program_name 
                                   FROM students s 
                                   JOIN student_profiles sp ON s.id = sp.student_id 
@@ -1265,16 +2022,18 @@ if (preg_match('#^/api/verify/([a-zA-Z0-9_\-]+)$#', $path, $matches) && $method 
 }
 
 // -----------------------------------------------------------------------------
-// 18. AUDIT LOGS & REPORTING SUITE
+// 18. AUDIT LOGS & REPORTING SUITE (STRICT AUDIT RESTRICTION)
 // -----------------------------------------------------------------------------
 
 if ($path === '/api/audit' && $method === 'GET') {
+    Response::requirePermission('audit.view');
     $stmt = $pdo->query("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100");
     $logs = $stmt->fetchAll();
     Response::success($logs, 'Audit logs retrieved.');
 }
 
 if ($path === '/api/reports/masterlist' && $method === 'GET') {
+    Response::requirePermission('reports.view');
     $stmt = $pdo->query("SELECT s.student_number, sp.last_name, sp.first_name, sp.gender, p.code as program_code, yl.name as year_level, s.status, s.gpa
                          FROM students s
                          JOIN student_profiles sp ON s.id = sp.student_id

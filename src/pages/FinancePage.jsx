@@ -1,5 +1,5 @@
 // src/pages/FinancePage.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api/client';
 import { PageHeader } from '../components/common/PageHeader';
 import { DataTable } from '../components/common/DataTable';
@@ -11,12 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   DollarSign,
   Receipt,
-  Printer,
-  CreditCard,
-  QrCode,
-  CheckCircle2,
-  AlertCircle,
-  FileText
+  Printer
 } from 'lucide-react';
 
 export const FinancePage = () => {
@@ -41,7 +36,7 @@ export const FinancePage = () => {
   // Official Receipt Print Modal
   const [selectedReceipt, setSelectedReceipt] = useState(null);
 
-  const fetchFinanceData = async () => {
+  const fetchFinanceData = useCallback(async () => {
     setLoading(true);
     try {
       const [invRes, payRes] = await Promise.all([
@@ -55,11 +50,11 @@ export const FinancePage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [showToast]);
 
   useEffect(() => {
     fetchFinanceData();
-  }, []);
+  }, [fetchFinanceData]);
 
   const handleProcessPayment = async (e) => {
     e.preventDefault();

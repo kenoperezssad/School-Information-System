@@ -1,5 +1,5 @@
 // src/pages/OperationsPage.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api/client';
 import { PageHeader } from '../components/common/PageHeader';
 import { DataTable } from '../components/common/DataTable';
@@ -9,14 +9,12 @@ import { Modal } from '../components/common/Modal';
 import { Tabs } from '../components/common/Tabs';
 import { useAuth } from '../context/AuthContext';
 import {
-  Building2,
   Box,
   Users2,
   Bell,
   Calendar,
   Award,
-  Plus,
-  Send
+  Plus
 } from 'lucide-react';
 
 export const OperationsPage = () => {
@@ -37,9 +35,34 @@ export const OperationsPage = () => {
     audience: 'All',
     priority: 'Normal',
   });
+
+  // Schedule Event Modal
+  const [eventModalOpen, setEventModalOpen] = useState(false);
+  const [newEvent, setNewEvent] = useState({
+    title: '',
+    description: '',
+    venue: '',
+    start_date: '',
+    end_date: '',
+    organizer: '',
+    category: 'Academic',
+  });
+
+  // Register Asset Modal
+  const [assetModalOpen, setAssetModalOpen] = useState(false);
+  const [newAsset, setNewAsset] = useState({
+    item_name: '',
+    category: 'Equipment',
+    quantity: 1,
+    unit: 'pcs',
+    location: '',
+    condition_status: 'Good',
+    unit_cost: 0,
+  });
+
   const [submitting, setSubmitting] = useState(false);
 
-  const fetchOperationsData = async () => {
+  const fetchOperationsData = useCallback(async () => {
     setLoading(true);
     try {
       const [invRes, empRes, annRes, evRes, gradRes] = await Promise.all([
@@ -59,11 +82,11 @@ export const OperationsPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [showToast]);
 
   useEffect(() => {
     fetchOperationsData();
-  }, []);
+  }, [fetchOperationsData]);
 
   const handlePostAnnouncement = async (e) => {
     e.preventDefault();
@@ -73,6 +96,59 @@ export const OperationsPage = () => {
       if (res.success) {
         showToast('University announcement broadcasted successfully!', 'success');
         setBroadcastOpen(false);
+        setNewNotice({ title: '', content: '', audience: 'All', priority: 'Normal' });
+        fetchOperationsData();
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCreateEvent = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const res = await api.post('/events', newEvent);
+      if (res.success) {
+        showToast('Campus event scheduled successfully!', 'success');
+        setEventModalOpen(false);
+        setNewEvent({
+          title: '',
+          description: '',
+          venue: '',
+          start_date: '',
+          end_date: '',
+          organizer: '',
+          category: 'Academic',
+        });
+        fetchOperationsData();
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCreateAsset = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const res = await api.post('/inventory', newAsset);
+      if (res.success) {
+        showToast('Inventory item registered successfully!', 'success');
+        setAssetModalOpen(false);
+        setNewAsset({
+          item_name: '',
+          category: 'Equipment',
+          quantity: 1,
+          unit: 'pcs',
+          location: '',
+          condition_status: 'Good',
+          unit_cost: 0,
+        });
         fetchOperationsData();
       }
     } catch (err) {
@@ -177,6 +253,45 @@ export const OperationsPage = () => {
     },
   ];
 
+  const eventColumns = [
+    {
+      header: 'Event Activity',
+      render: (row) => (
+        <div>
+          <p className="font-bold text-slate-900 dark:text-white">{row.title}</p>
+          <p className="text-xs text-slate-400 line-clamp-1">{row.description}</p>
+        </div>
+      ),
+    },
+    {
+      header: 'Category',
+      render: (row) => <Badge variant="purple">{row.category}</Badge>,
+    },
+    {
+      header: 'Venue',
+      accessor: 'venue',
+      render: (row) => <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{row.venue}</span>,
+    },
+    {
+      header: 'Schedule Range',
+      render: (row) => (
+        <div>
+          <p className="text-xs font-mono font-medium text-slate-800 dark:text-slate-200">
+            {new Date(row.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </p>
+          <p className="text-[11px] text-slate-400">
+            {new Date(row.start_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(row.end_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </p>
+        </div>
+      ),
+    },
+    {
+      header: 'Organizer',
+      accessor: 'organizer',
+      render: (row) => <span className="text-xs text-slate-600 dark:text-slate-400">{row.organizer}</span>,
+    },
+  ];
+
   const graduateColumns = [
     {
       header: 'Student',
@@ -217,17 +332,25 @@ export const OperationsPage = () => {
     <div className="space-y-6">
       <PageHeader
         title="Institutional Operations & Administration"
-        subtitle="School inventory assets, HR employee management, campus-wide announcements, and graduation Latin Honors evaluation"
+        subtitle="School inventory assets, HR employee management, campus events calendar, announcements, and graduation Latin Honors evaluation"
         actions={
-          activeTab === 'announcements' && (
-            <Button
-              variant="primary"
-              icon={Plus}
-              onClick={() => setBroadcastOpen(true)}
-            >
-              Broadcast Notice
-            </Button>
-          )
+          <div className="flex gap-2">
+            {activeTab === 'inventory' && (
+              <Button variant="primary" icon={Plus} onClick={() => setAssetModalOpen(true)}>
+                Add Asset Item
+              </Button>
+            )}
+            {activeTab === 'events' && (
+              <Button variant="primary" icon={Plus} onClick={() => setEventModalOpen(true)}>
+                Schedule Event
+              </Button>
+            )}
+            {activeTab === 'announcements' && (
+              <Button variant="primary" icon={Plus} onClick={() => setBroadcastOpen(true)}>
+                Broadcast Notice
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -237,6 +360,7 @@ export const OperationsPage = () => {
         tabs={[
           { id: 'inventory', label: 'Inventory & Assets', icon: Box, count: inventory.length },
           { id: 'hr', label: 'HR Personnel', icon: Users2, count: employees.length },
+          { id: 'events', label: 'Events & Activities', icon: Calendar, count: events.length },
           { id: 'announcements', label: 'Announcements', icon: Bell, count: announcements.length },
           { id: 'graduation', label: 'Graduation & Latin Honors', icon: Award, count: graduates.length },
         ]}
@@ -257,6 +381,15 @@ export const OperationsPage = () => {
           data={employees}
           loading={loading}
           searchPlaceholder="Search employees by name or position..."
+        />
+      )}
+
+      {activeTab === 'events' && (
+        <DataTable
+          columns={eventColumns}
+          data={events}
+          loading={loading}
+          searchPlaceholder="Search events by title, venue, or organizer..."
         />
       )}
 
@@ -339,6 +472,197 @@ export const OperationsPage = () => {
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
             <Button variant="secondary" onClick={() => setBroadcastOpen(false)}>Cancel</Button>
             <Button type="submit" loading={submitting}>Publish Broadcast</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Schedule Event Modal */}
+      <Modal
+        isOpen={eventModalOpen}
+        onClose={() => setEventModalOpen(false)}
+        title="Schedule University Event"
+        subtitle="Plan ceremonies, seminars, sports, or academic activities"
+      >
+        <form onSubmit={handleCreateEvent} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Event Title *</label>
+            <input
+              type="text"
+              required
+              value={newEvent.title}
+              onChange={e => setNewEvent({ ...newEvent, title: e.target.value })}
+              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+              placeholder="e.g. 50th University Foundation Day"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Category</label>
+              <select
+                value={newEvent.category}
+                onChange={e => setNewEvent({ ...newEvent, category: e.target.value })}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+              >
+                <option value="Academic">Academic</option>
+                <option value="Institutional">Institutional</option>
+                <option value="Cultural">Cultural</option>
+                <option value="Sports">Sports</option>
+                <option value="Student Life">Student Life</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Venue Location</label>
+              <input
+                type="text"
+                required
+                value={newEvent.venue}
+                onChange={e => setNewEvent({ ...newEvent, venue: e.target.value })}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+                placeholder="e.g. University Grand Gymnasium"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Start Date & Time</label>
+              <input
+                type="datetime-local"
+                required
+                value={newEvent.start_date}
+                onChange={e => setNewEvent({ ...newEvent, start_date: e.target.value })}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">End Date & Time</label>
+              <input
+                type="datetime-local"
+                required
+                value={newEvent.end_date}
+                onChange={e => setNewEvent({ ...newEvent, end_date: e.target.value })}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Lead Organizer</label>
+            <input
+              type="text"
+              required
+              value={newEvent.organizer}
+              onChange={e => setNewEvent({ ...newEvent, organizer: e.target.value })}
+              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+              placeholder="e.g. Supreme Student Council / Office of Student Affairs"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Brief Description</label>
+            <textarea
+              rows="3"
+              value={newEvent.description}
+              onChange={e => setNewEvent({ ...newEvent, description: e.target.value })}
+              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+              placeholder="Enter activity highlights and agenda..."
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+            <Button variant="secondary" onClick={() => setEventModalOpen(false)}>Cancel</Button>
+            <Button type="submit" loading={submitting}>Schedule Event</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Register Asset Modal */}
+      <Modal
+        isOpen={assetModalOpen}
+        onClose={() => setAssetModalOpen(false)}
+        title="Register Inventory Asset"
+        subtitle="Log fixed equipment, lab apparatus, or IT facilities"
+      >
+        <form onSubmit={handleCreateAsset} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Item Name *</label>
+            <input
+              type="text"
+              required
+              value={newAsset.item_name}
+              onChange={e => setNewAsset({ ...newAsset, item_name: e.target.value })}
+              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+              placeholder="e.g. Dell PowerEdge Server Rack 42U"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Asset Category</label>
+              <select
+                value={newAsset.category}
+                onChange={e => setNewAsset({ ...newAsset, category: e.target.value })}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+              >
+                <option value="IT Equipment">IT Equipment</option>
+                <option value="Laboratory">Laboratory</option>
+                <option value="Furniture">Furniture</option>
+                <option value="AV & Multimedia">AV & Multimedia</option>
+                <option value="Clinic">Clinic</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Assigned Location</label>
+              <input
+                type="text"
+                required
+                value={newAsset.location}
+                onChange={e => setNewAsset({ ...newAsset, location: e.target.value })}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+                placeholder="e.g. IT Computer Lab 402"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Quantity</label>
+              <input
+                type="number"
+                min="1"
+                required
+                value={newAsset.quantity}
+                onChange={e => setNewAsset({ ...newAsset, quantity: parseInt(e.target.value) || 1 })}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Unit</label>
+              <input
+                type="text"
+                required
+                value={newAsset.unit}
+                onChange={e => setNewAsset({ ...newAsset, unit: e.target.value })}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Unit Cost (₱)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={newAsset.unit_cost}
+                onChange={e => setNewAsset({ ...newAsset, unit_cost: parseFloat(e.target.value) || 0 })}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+            <Button variant="secondary" onClick={() => setAssetModalOpen(false)}>Cancel</Button>
+            <Button type="submit" loading={submitting}>Register Item</Button>
           </div>
         </form>
       </Modal>

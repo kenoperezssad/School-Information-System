@@ -5,6 +5,8 @@ require_once __DIR__ . '/../config/jwt.php';
 require_once __DIR__ . '/../config/database.php';
 
 class Response {
+    private static $cachedPermissions = [];
+
     public static function initCors() {
         // Allow CORS for local dev
         $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
@@ -64,16 +66,112 @@ class Response {
     public static function requireAuth($allowedRoles = []) {
         $user = self::getAuthUser();
         if (!$user) {
-            self::error('Unauthorized. Please log in.', 401);
+            self::error('Unauthorized: Please log in to continue.', 401);
         }
         if (!empty($allowedRoles)) {
             $userRole = $user['role'] ?? '';
             // Super Admin always allowed
             if ($userRole !== 'Super Administrator' && !in_array($userRole, $allowedRoles)) {
-                self::error('Forbidden: You do not have permission to perform this action.', 403);
+                self::error('Forbidden: Your role (' . $userRole . ') is not authorized for this action.', 403);
             }
         }
         return $user;
+    }
+
+    public static function getPermissionsForUser($user) {
+        if (!$user) return [];
+        $role = $user['role'] ?? '';
+        if (isset(self::$cachedPermissions[$role])) {
+            return self::$cachedPermissions[$role];
+        }
+
+        $pdo = Database::getConnection();
+        if ($role === 'Super Administrator') {
+            // Super Admin gets all permissions
+            $stmt = $pdo->query("SELECT name FROM permissions");
+            $perms = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            self::$cachedPermissions[$role] = $perms;
+            return $perms;
+        }
+
+        $stmt = $pdo->prepare("
+            SELECT p.name 
+            FROM permissions p
+            JOIN role_permissions rp ON p.id = rp.permission_id
+            JOIN roles r ON rp.role_id = r.id
+            WHERE r.name = ?
+        ");
+        $stmt->execute([$role]);
+        $perms = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        self::$cachedPermissions[$role] = $perms;
+        return $perms;
+    }
+
+    public static function hasPermission($user, $permissionName) {
+        if (!$user) return false;
+        if (($user['role'] ?? '') === 'Super Administrator') return true;
+        $perms = self::getPermissionsForUser($user);
+        return in_array($permissionName, $perms);
+    }
+
+    public static function requirePermission($permissionName) {
+        $user = self::requireAuth();
+        if (!self::hasPermission($user, $permissionName)) {
+            self::error("Forbidden: You lack the required permission ('$permissionName') to access this resource.", 403);
+        }
+        return $user;
+    }
+
+    // -------------------------------------------------------------------------
+    // RECORD-LEVEL & DATA-LEVEL AUTHORIZATION HELPERS
+    // -------------------------------------------------------------------------
+
+    public static function getStudentIdForUser($userId) {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT id FROM students WHERE user_id = ? LIMIT 1");
+        $stmt->execute([$userId]);
+        $res = $stmt->fetch();
+        return $res ? (int)$res['id'] : null;
+    }
+
+    public static function getFacultyIdForUser($userId) {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT id FROM faculty WHERE user_id = ? LIMIT 1");
+        $stmt->execute([$userId]);
+        $res = $stmt->fetch();
+        return $res ? (int)$res['id'] : null;
+    }
+
+    public static function getLinkedStudentIdsForParent($userEmail, $userId = null) {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("SELECT student_id FROM student_guardians WHERE email = ?");
+        $stmt->execute([$userEmail]);
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    public static function isStudentAssignedToFaculty($studentId, $facultyId) {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as cnt 
+            FROM enrollment_subjects es
+            JOIN enrollments e ON es.enrollment_id = e.id
+            JOIN schedules s ON es.schedule_id = s.id
+            WHERE e.student_id = ? AND s.faculty_id = ?
+        ");
+        $stmt->execute([$studentId, $facultyId]);
+        $res = $stmt->fetch();
+        if ($res && (int)$res['cnt'] > 0) return true;
+
+        // Also check if teacher advises section or teaches any subject in student's section
+        $stmt2 = $pdo->prepare("
+            SELECT COUNT(*) as cnt
+            FROM students st
+            JOIN schedules sc ON st.section_id = sc.section_id
+            WHERE st.id = ? AND sc.faculty_id = ?
+        ");
+        $stmt2->execute([$studentId, $facultyId]);
+        $res2 = $stmt2->fetch();
+        return ($res2 && (int)$res2['cnt'] > 0);
     }
 
     public static function auditLog($userId, $userName, $role, $action, $module, $recordId = null, $oldValues = null, $newValues = null) {

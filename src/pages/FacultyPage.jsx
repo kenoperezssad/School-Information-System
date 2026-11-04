@@ -1,5 +1,5 @@
 // src/pages/FacultyPage.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api/client';
 import { PageHeader } from '../components/common/PageHeader';
 import { DataTable } from '../components/common/DataTable';
@@ -38,7 +38,7 @@ export const FacultyPage = () => {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const fetchFaculty = async () => {
+  const fetchFaculty = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.get('/faculty');
@@ -48,14 +48,14 @@ export const FacultyPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [showToast]);
 
   useEffect(() => {
     fetchFaculty();
     api.get('/academic/metadata').then(res => {
       if (res.success) setMetadata(res.data);
     });
-  }, []);
+  }, [fetchFaculty]);
 
   const handleCreateFaculty = async (e) => {
     e.preventDefault();

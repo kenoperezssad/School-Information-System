@@ -1,5 +1,5 @@
 // src/pages/RegistrarPage.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api/client';
 import { PageHeader } from '../components/common/PageHeader';
 import { DataTable } from '../components/common/DataTable';
@@ -10,12 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   FileText,
   Printer,
-  QrCode,
-  CheckCircle2,
-  Clock,
-  Send,
-  ShieldCheck,
-  Award
+  QrCode
 } from 'lucide-react';
 
 export const RegistrarPage = () => {
@@ -36,7 +31,7 @@ export const RegistrarPage = () => {
   // Printable Document Certificate Preview Modal
   const [previewDoc, setPreviewDoc] = useState(null);
 
-  const fetchDocs = async () => {
+  const fetchDocs = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.get('/registrar/documents');
@@ -46,11 +41,11 @@ export const RegistrarPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [showToast]);
 
   useEffect(() => {
     fetchDocs();
-  }, []);
+  }, [fetchDocs]);
 
   const handleCreateRequest = async (e) => {
     e.preventDefault();
