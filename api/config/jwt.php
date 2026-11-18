@@ -2,7 +2,16 @@
 // api/config/jwt.php
 
 class JWT {
-    private static $secret = 'ApexSIS_Super_Secure_Secret_Key_2026_Enterprise_System_DeepMind!';
+    private static function getSecret(): string {
+        $secret = $_ENV['JWT_SECRET'] ?? getenv('JWT_SECRET');
+        if (empty($secret)) {
+            http_response_code(500);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Server misconfiguration: JWT_SECRET is not set.']);
+            exit;
+        }
+        return $secret;
+    }
 
     public static function encode($payload, $expirySeconds = 86400 * 7) {
         $header = json_encode(['typ' => 'JWT', 'alg' => 'HS256']);
@@ -12,7 +21,7 @@ class JWT {
 
         $base64UrlHeader = self::base64UrlEncode($header);
         $base64UrlPayload = self::base64UrlEncode($payloadJson);
-        $signature = hash_hmac('sha256', $base64UrlHeader . "." . $base64UrlPayload, self::$secret, true);
+        $signature = hash_hmac('sha256', $base64UrlHeader . "." . $base64UrlPayload, self::getSecret(), true);
         $base64UrlSignature = self::base64UrlEncode($signature);
 
         return $base64UrlHeader . "." . $base64UrlPayload . "." . $base64UrlSignature;
@@ -24,7 +33,7 @@ class JWT {
         if (count($parts) !== 3) return null;
 
         list($header, $payload, $signature) = $parts;
-        $expectedSig = hash_hmac('sha256', $header . "." . $payload, self::$secret, true);
+        $expectedSig = hash_hmac('sha256', $header . "." . $payload, self::getSecret(), true);
         $expectedBase64 = self::base64UrlEncode($expectedSig);
 
         if (!hash_equals($expectedBase64, $signature)) {

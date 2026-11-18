@@ -1,5 +1,5 @@
 // src/pages/DashboardPage.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { PageHeader } from '../components/common/PageHeader';
@@ -42,22 +42,24 @@ export const DashboardPage = () => {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchStats = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await api.get('/dashboard/stats');
+      if (res.success) setData(res.data);
+    } catch (err) {
+      setError(err.message || 'Failed to load dashboard');
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.role]);
 
   useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const res = await api.get('/dashboard/stats');
-        if (res.success) {
-          setData(res.data);
-        }
-      } catch (err) {
-        console.error('Failed to load dashboard metrics', err);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchStats();
-  }, [user?.role]);
+  }, [fetchStats]);
 
   if (loading) {
     return <LoadingSpinner label="Loading dashboard metrics..." size="lg" />;
@@ -74,7 +76,7 @@ export const DashboardPage = () => {
     <div className="space-y-8 animate-fade-in">
       <PageHeader
         title={`Welcome back, ${user?.first_name || user?.username}!`}
-        subtitle={`System role: ${currentRole} • Academic Year 2026-2027 (1st Semester)`}
+        subtitle={`System role: ${currentRole} • ${data?.academic_year ?? 'AY 2026-2027'} (${data?.semester ?? '1st Semester'})`}
         badge={<Badge variant="purple">{currentRole}</Badge>}
         actions={
           <div className="flex items-center gap-2">
@@ -98,14 +100,23 @@ export const DashboardPage = () => {
         }
       />
 
+      {error && (
+        <div className="flex items-center gap-3 p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-bold">Dashboard data could not be loaded</p>
+            <p className="text-xs opacity-75">{error}</p>
+          </div>
+          <button onClick={fetchStats} className="text-xs font-bold underline hover:no-underline">Retry</button>
+        </div>
+      )}
+
       {/* Primary KPI Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <StatCard
           title="Total Students"
           value={counters.totalStudents ?? 0}
           icon={Users}
-          trend="+12.5%"
-          trendLabel="vs last semester"
           gradient="from-indigo-500 to-indigo-600"
           iconColor="text-indigo-600 dark:text-indigo-400"
           iconBg="bg-indigo-50 dark:bg-indigo-950/50"
@@ -114,8 +125,6 @@ export const DashboardPage = () => {
           title="Enrolled This Term"
           value={counters.enrolledStudents ?? 0}
           icon={GraduationCap}
-          trend="+8.2%"
-          trendLabel="regular load"
           gradient="from-emerald-500 to-teal-600"
           iconColor="text-emerald-600 dark:text-emerald-400"
           iconBg="bg-emerald-50 dark:bg-emerald-950/50"
@@ -124,8 +133,6 @@ export const DashboardPage = () => {
           title="Total Collections"
           value={`₱${Number(counters.totalRevenue || 0).toLocaleString()}`}
           icon={DollarSign}
-          trend="+15.3%"
-          trendLabel="tuition & lab"
           gradient="from-cyan-500 to-blue-600"
           iconColor="text-cyan-600 dark:text-cyan-400"
           iconBg="bg-cyan-50 dark:bg-cyan-950/50"
@@ -134,8 +141,6 @@ export const DashboardPage = () => {
           title="Faculty Members"
           value={counters.totalFaculty ?? 0}
           icon={Briefcase}
-          trend="100%"
-          trendLabel="teaching capacity"
           gradient="from-amber-500 to-orange-600"
           iconColor="text-amber-600 dark:text-amber-400"
           iconBg="bg-amber-50 dark:bg-amber-950/50"

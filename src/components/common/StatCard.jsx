@@ -8,12 +8,12 @@ export const StatCard = ({
   value,
   icon: Icon,
   trend,
-  trendLabel = 'vs last month',
+  trendLabel,
   gradient = 'from-indigo-500 to-indigo-600',
   iconColor = 'text-indigo-600 dark:text-indigo-400',
   iconBg = 'bg-indigo-50 dark:bg-indigo-950/50',
 }) => {
-  const isPositive = trend && !trend.startsWith('-');
+  const isPositive = typeof trend === 'string' ? !trend.startsWith('-') : Boolean(trend);
 
   return (
     <GlassCard className="p-5 relative overflow-hidden group">
@@ -31,13 +31,13 @@ export const StatCard = ({
         </div>
       </div>
 
-      {trend && (
+      {Boolean(trend) && (
         <div className="mt-4 flex items-center text-xs text-slate-500 dark:text-slate-400 font-medium pt-3 border-t border-slate-100 dark:border-slate-800/80">
           <span className={`inline-flex items-center font-bold mr-1.5 ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
             {isPositive ? <TrendingUp className="w-3.5 h-3.5 mr-0.5" /> : <TrendingDown className="w-3.5 h-3.5 mr-0.5" />}
             {trend}
           </span>
-          <span>{trendLabel}</span>
+          {trendLabel && <span>{trendLabel}</span>}
         </div>
       )}
 

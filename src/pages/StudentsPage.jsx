@@ -23,7 +23,8 @@ import {
   Phone,
   Mail,
   MapPin,
-  Calendar
+  Calendar,
+  RefreshCw
 } from 'lucide-react';
 
 export const StudentsPage = () => {
@@ -40,6 +41,7 @@ export const StudentsPage = () => {
 
   // Add Student modal
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
   const [formData, setFormData] = useState({
     first_name: '',
     middle_name: '',
@@ -76,6 +78,21 @@ export const StudentsPage = () => {
     });
   }, []);
 
+  useEffect(() => {
+    const interval = setInterval(() => { fetchStudents(); }, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleOpenAddModal = () => {
+    setFormErrors({});
+    setAddModalOpen(true);
+  };
+
+  const handleCloseAddModal = () => {
+    setFormErrors({});
+    setAddModalOpen(false);
+  };
+
   // Open 360° student drawer
   const handleViewStudent = async (studentId) => {
     setSelectedStudentId(studentId);
@@ -91,15 +108,32 @@ export const StudentsPage = () => {
     }
   };
 
+  const validate = () => {
+    const errs = {};
+    if (!formData.first_name.trim()) errs.first_name = 'First name is required';
+    if (!formData.last_name.trim()) errs.last_name = 'Last name is required';
+    if (!formData.email.trim()) errs.email = 'Email is required';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errs.email = 'Invalid email format';
+    if (formData.phone && !/^\d{10,11}$/.test(formData.phone.replace(/\D/g,''))) errs.phone = 'Phone must be 10-11 digits';
+    if (!formData.birth_date) errs.birth_date = 'Birth date is required';
+    return errs;
+  };
+
   // Handle register student submit
   const handleRegister = async (e) => {
     e.preventDefault();
+    const errors = validate();
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+    setFormErrors({});
     setSubmitting(true);
     try {
       const res = await api.post('/students', formData);
       if (res.success) {
         showToast(`Student #${res.data.student_number} registered!`, 'success');
-        setAddModalOpen(false);
+        handleCloseAddModal();
         fetchStudents();
       }
     } catch (err) {
@@ -191,13 +225,23 @@ export const StudentsPage = () => {
         title="Student 360° Directory"
         subtitle="Comprehensive student lifecycle management, records, enrollment, and academic profile"
         actions={
-          <Button
-            variant="primary"
-            icon={UserPlus}
-            onClick={() => setAddModalOpen(true)}
-          >
-            Register Student
-          </Button>
+          <>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={RefreshCw}
+              onClick={fetchStudents}
+            >
+              Refresh
+            </Button>
+            <Button
+              variant="primary"
+              icon={UserPlus}
+              onClick={handleOpenAddModal}
+            >
+              Register Student
+            </Button>
+          </>
         }
       />
 
@@ -470,31 +514,37 @@ export const StudentsPage = () => {
       {/* Register Student Modal */}
       <Modal
         isOpen={addModalOpen}
-        onClose={() => setAddModalOpen(false)}
+        onClose={handleCloseAddModal}
         title="Register New Student"
         subtitle="Create official academic profile and student record"
       >
-        <form onSubmit={handleRegister} className="space-y-4">
+        <form onSubmit={handleRegister} className="space-y-4" noValidate>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">First Name *</label>
               <input
                 type="text"
-                required
                 value={formData.first_name}
-                onChange={e => setFormData({ ...formData, first_name: e.target.value })}
+                onChange={e => {
+                  setFormData({ ...formData, first_name: e.target.value });
+                  if (formErrors.first_name) setFormErrors({ ...formErrors, first_name: undefined });
+                }}
                 className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
               />
+              {formErrors.first_name && <p className="text-xs text-rose-500 mt-1">{formErrors.first_name}</p>}
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Last Name *</label>
               <input
                 type="text"
-                required
                 value={formData.last_name}
-                onChange={e => setFormData({ ...formData, last_name: e.target.value })}
+                onChange={e => {
+                  setFormData({ ...formData, last_name: e.target.value });
+                  if (formErrors.last_name) setFormErrors({ ...formErrors, last_name: undefined });
+                }}
                 className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
               />
+              {formErrors.last_name && <p className="text-xs text-rose-500 mt-1">{formErrors.last_name}</p>}
             </div>
           </div>
 
@@ -503,20 +553,55 @@ export const StudentsPage = () => {
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Email Address *</label>
               <input
                 type="email"
-                required
                 value={formData.email}
-                onChange={e => setFormData({ ...formData, email: e.target.value })}
+                onChange={e => {
+                  setFormData({ ...formData, email: e.target.value });
+                  if (formErrors.email) setFormErrors({ ...formErrors, email: undefined });
+                }}
                 className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
               />
+              {formErrors.email && <p className="text-xs text-rose-500 mt-1">{formErrors.email}</p>}
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Phone Number</label>
               <input
                 type="text"
                 value={formData.phone}
-                onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                onChange={e => {
+                  setFormData({ ...formData, phone: e.target.value });
+                  if (formErrors.phone) setFormErrors({ ...formErrors, phone: undefined });
+                }}
                 className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
               />
+              {formErrors.phone && <p className="text-xs text-rose-500 mt-1">{formErrors.phone}</p>}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Birth Date *</label>
+              <input
+                type="date"
+                value={formData.birth_date}
+                onChange={e => {
+                  setFormData({ ...formData, birth_date: e.target.value });
+                  if (formErrors.birth_date) setFormErrors({ ...formErrors, birth_date: undefined });
+                }}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+              />
+              {formErrors.birth_date && <p className="text-xs text-rose-500 mt-1">{formErrors.birth_date}</p>}
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Gender *</label>
+              <select
+                value={formData.gender}
+                onChange={e => setFormData({ ...formData, gender: e.target.value })}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+              >
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Other">Other</option>
+              </select>
             </div>
           </div>
 
@@ -558,7 +643,7 @@ export const StudentsPage = () => {
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
-            <Button variant="secondary" onClick={() => setAddModalOpen(false)}>Cancel</Button>
+            <Button variant="secondary" onClick={handleCloseAddModal}>Cancel</Button>
             <Button type="submit" loading={submitting}>Register Student</Button>
           </div>
         </form>

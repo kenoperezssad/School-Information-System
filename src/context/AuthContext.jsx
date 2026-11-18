@@ -49,7 +49,7 @@ export const AuthProvider = ({ children }) => {
         }
       } catch (err) {
         console.error('Auth verification failed:', err);
-        // Default to demo admin session if token was valid
+        logout(); // Clear stale/invalid token so user is redirected to login
       } finally {
         setLoading(false);
       }

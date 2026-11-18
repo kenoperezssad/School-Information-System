@@ -3,6 +3,7 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 0); // Don't output raw PHP errors directly to break JSON
 
+require_once __DIR__ . '/env.php';          // Load .env secrets first
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/config/jwt.php';
 require_once __DIR__ . '/helpers/response.php';
@@ -105,6 +106,7 @@ if ($path === '/api/auth/me' && $method === 'GET') {
 
 // Quick Role Switcher for demonstration & evaluation
 if ($path === '/api/auth/switch-role' && $method === 'POST') {
+    $currentUser = Response::requireAuth(); // 🔒 Must be authenticated first
     $body = Response::getJsonBody();
     $targetRole = trim($body['role'] ?? 'Super Administrator');
 
@@ -148,18 +150,26 @@ if ($path === '/api/auth/switch-role' && $method === 'POST') {
 
 if ($path === '/api/rbac/roles' && $method === 'GET') {
     $user = Response::requireAuth();
-    $stmt = $pdo->query("SELECT r.*, COUNT(rp.permission_id) as permissions_count 
-                         FROM roles r 
-                         LEFT JOIN role_permissions rp ON r.id = rp.role_id 
-                         GROUP BY r.id 
-                         ORDER BY r.name ASC");
+
+    // Fetch all roles with permission names in a single JOIN query (no N+1)
+    $stmt = $pdo->query("
+        SELECT r.id, r.name, r.description, r.created_at,
+               COUNT(DISTINCT rp.permission_id) as permissions_count,
+               GROUP_CONCAT(DISTINCT p.name ORDER BY p.name ASC SEPARATOR ',') as permissions_csv
+        FROM roles r
+        LEFT JOIN role_permissions rp ON r.id = rp.role_id
+        LEFT JOIN permissions p ON rp.permission_id = p.id
+        GROUP BY r.id, r.name, r.description, r.created_at
+        ORDER BY r.name ASC
+    ");
     $roles = $stmt->fetchAll();
 
-    // Attach permissions per role
+    // Convert permissions_csv string into an array for each role
     foreach ($roles as &$role) {
-        $permStmt = $pdo->prepare("SELECT p.name FROM permissions p JOIN role_permissions rp ON p.id = rp.permission_id WHERE rp.role_id = ?");
-        $permStmt->execute([$role['id']]);
-        $role['permissions'] = $permStmt->fetchAll(PDO::FETCH_COLUMN);
+        $role['permissions'] = $role['permissions_csv']
+            ? explode(',', $role['permissions_csv'])
+            : [];
+        unset($role['permissions_csv']);
     }
     unset($role);
 
@@ -215,7 +225,10 @@ if ($path === '/api/rbac/role-permissions' && $method === 'POST') {
 
 // Helper for Student Isolated Dashboard
 function getStudentDashboardData($pdo, $user) {
-    $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+    $studentId = Response::getStudentIdForUser($user['id']);
+    if (!$studentId) {
+        return ['role' => 'Student', 'is_isolated' => true, 'error' => 'No student record is linked to your account. Please contact the registrar.'];
+    }
 
     // Student basic academic record
     $stdStmt = $pdo->prepare("
@@ -294,7 +307,10 @@ function getStudentDashboardData($pdo, $user) {
 
 // Helper for Faculty Isolated Dashboard
 function getFacultyDashboardData($pdo, $user) {
-    $facultyId = Response::getFacultyIdForUser($user['id']) ?? 1;
+    $facultyId = Response::getFacultyIdForUser($user['id']);
+    if (!$facultyId) {
+        return ['role' => 'Faculty', 'is_isolated' => true, 'error' => 'No faculty record is linked to your account. Please contact the administrator.'];
+    }
 
     // Assigned teaching schedules
     $schStmt = $pdo->prepare("
@@ -606,7 +622,10 @@ if ($path === '/api/students' && $method === 'GET') {
 
     // STRICT DATA ISOLATION PER ROLE
     if ($role === 'Student') {
-        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $studentId = Response::getStudentIdForUser($user['id']);
+    if (!$studentId) {
+        return ['role' => 'Student', 'is_isolated' => true, 'error' => 'No student record is linked to your account. Please contact the registrar.'];
+    }
         $sql .= " AND s.id = ?";
         $params[] = $studentId;
     } else if ($role === 'Parent/Guardian') {
@@ -955,7 +974,10 @@ if ($path === '/api/enrollments' && $method === 'GET') {
     $params = [];
 
     if ($role === 'Student') {
-        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $studentId = Response::getStudentIdForUser($user['id']);
+    if (!$studentId) {
+        return ['role' => 'Student', 'is_isolated' => true, 'error' => 'No student record is linked to your account. Please contact the registrar.'];
+    }
         $sql .= " AND e.student_id = ?";
         $params[] = $studentId;
     } else if ($role === 'Parent/Guardian') {
@@ -1005,7 +1027,10 @@ if (preg_match('#^/api/enrollments/(\d+)$#', $path, $matches) && $method === 'GE
 
     // Ownership check
     if ($role === 'Student') {
-        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $studentId = Response::getStudentIdForUser($user['id']);
+    if (!$studentId) {
+        return ['role' => 'Student', 'is_isolated' => true, 'error' => 'No student record is linked to your account. Please contact the registrar.'];
+    }
         if ((int)$enrollment['student_id'] !== $studentId) {
             Response::error('Forbidden: You can only view your own Certificate of Registration.', 403);
         }
@@ -1062,7 +1087,10 @@ if ($path === '/api/registrar/documents' && $method === 'GET') {
     $params = [];
 
     if ($role === 'Student') {
-        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $studentId = Response::getStudentIdForUser($user['id']);
+    if (!$studentId) {
+        return ['role' => 'Student', 'is_isolated' => true, 'error' => 'No student record is linked to your account. Please contact the registrar.'];
+    }
         $sql .= " AND rd.student_id = ?";
         $params[] = $studentId;
     } else if ($role === 'Parent/Guardian') {
@@ -1198,7 +1226,10 @@ if ($path === '/api/schedules' && $method === 'GET') {
         $sql .= " AND sch.faculty_id = ?";
         $params[] = $facultyId;
     } else if ($role === 'Student') {
-        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $studentId = Response::getStudentIdForUser($user['id']);
+    if (!$studentId) {
+        return ['role' => 'Student', 'is_isolated' => true, 'error' => 'No student record is linked to your account. Please contact the registrar.'];
+    }
         $sql .= " AND sch.id IN (
             SELECT es.schedule_id 
             FROM enrollment_subjects es 
@@ -1321,7 +1352,10 @@ if ($path === '/api/attendance' && $method === 'GET') {
     $params = [$date];
 
     if ($role === 'Student') {
-        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $studentId = Response::getStudentIdForUser($user['id']);
+    if (!$studentId) {
+        return ['role' => 'Student', 'is_isolated' => true, 'error' => 'No student record is linked to your account. Please contact the registrar.'];
+    }
         $sql .= " AND a.student_id = ?";
         $params[] = $studentId;
     } else if ($role === 'Parent/Guardian') {
@@ -1425,7 +1459,10 @@ if ($path === '/api/grades' && $method === 'GET') {
     $params = [];
 
     if ($role === 'Student') {
-        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $studentId = Response::getStudentIdForUser($user['id']);
+    if (!$studentId) {
+        return ['role' => 'Student', 'is_isolated' => true, 'error' => 'No student record is linked to your account. Please contact the registrar.'];
+    }
         $sql .= " AND g.student_id = ?";
         $params[] = $studentId;
     } else if ($role === 'Parent/Guardian') {
@@ -1520,7 +1557,10 @@ if ($path === '/api/finance/invoices' && $method === 'GET') {
     $params = [];
 
     if ($role === 'Student') {
-        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $studentId = Response::getStudentIdForUser($user['id']);
+    if (!$studentId) {
+        return ['role' => 'Student', 'is_isolated' => true, 'error' => 'No student record is linked to your account. Please contact the registrar.'];
+    }
         $sql .= " AND inv.student_id = ?";
         $params[] = $studentId;
     } else if ($role === 'Parent/Guardian') {
@@ -1556,7 +1596,10 @@ if ($path === '/api/finance/payments' && $method === 'GET') {
     $params = [];
 
     if ($role === 'Student') {
-        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $studentId = Response::getStudentIdForUser($user['id']);
+    if (!$studentId) {
+        return ['role' => 'Student', 'is_isolated' => true, 'error' => 'No student record is linked to your account. Please contact the registrar.'];
+    }
         $sql .= " AND p.student_id = ?";
         $params[] = $studentId;
     } else if ($role === 'Parent/Guardian') {
@@ -1649,7 +1692,10 @@ if ($path === '/api/clearances' && $method === 'GET') {
     $params = [];
 
     if ($role === 'Student') {
-        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $studentId = Response::getStudentIdForUser($user['id']);
+    if (!$studentId) {
+        return ['role' => 'Student', 'is_isolated' => true, 'error' => 'No student record is linked to your account. Please contact the registrar.'];
+    }
         $sql .= " AND c.student_id = ?";
         $params[] = $studentId;
     } else if ($role === 'Parent/Guardian') {
@@ -1734,7 +1780,10 @@ if ($path === '/api/library/borrowings' && $method === 'GET') {
     $params = [];
 
     if ($role === 'Student') {
-        $studentId = Response::getStudentIdForUser($user['id']) ?? 1;
+        $studentId = Response::getStudentIdForUser($user['id']);
+    if (!$studentId) {
+        return ['role' => 'Student', 'is_isolated' => true, 'error' => 'No student record is linked to your account. Please contact the registrar.'];
+    }
         $sql .= " AND lb.student_id = ?";
         $params[] = $studentId;
     } else {

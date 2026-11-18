@@ -2,14 +2,21 @@
 // api/config/database.php
 
 class Database {
-    private static $host = '127.0.0.1';
-    private static $port = '3306';
-    private static $db_name = 'school_information_system';
-    private static $username = 'root';
-    private static $password = '';
+    private static $host;
+    private static $port;
+    private static $db_name;
+    private static $username;
+    private static $password;
     private static $pdo = null;
 
     public static function getConnection() {
+        // Read credentials from environment variables (loaded from .env)
+        self::$host     = $_ENV['DB_HOST']  ?? '127.0.0.1';
+        self::$port     = $_ENV['DB_PORT']  ?? '3306';
+        self::$db_name  = $_ENV['DB_NAME']  ?? 'school_information_system';
+        self::$username = $_ENV['DB_USER']  ?? 'root';
+        self::$password = $_ENV['DB_PASS']  ?? '';
+
         if (self::$pdo === null) {
             try {
                 // First ensure database exists
