@@ -558,15 +558,15 @@ CREATE TABLE IF NOT EXISTS `qr_verifications` (
 -- ─── Users (password = Admin@123 for all accounts) ───────────
 -- BCrypt hash of 'Admin@123'
 INSERT INTO `users` (username, email, password_hash, role) VALUES
-('admin',       'admin@school.edu',       '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Super Administrator'),
-('registrar',   'registrar@school.edu',   '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Registrar'),
-('faculty',     'faculty@school.edu',     '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Teacher'),
-('student',     'student@school.edu',     '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Student'),
-('parent',      'parent@school.edu',      '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Parent/Guardian'),
-('accountant',  'accountant@school.edu',  '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Accountant'),
-('librarian',   'librarian@school.edu',   '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Librarian'),
-('guidance',    'guidance@school.edu',    '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Guidance Counselor'),
-('nurse',       'nurse@school.edu',       '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'School Nurse');
+('admin',       'admin@school.edu',       '$2y$10$XFDqRdFvCPgyrnWC/wI0kOGbP/YI.htDV5gsjv7J/QnBN1hkwA5AK', 'Super Administrator'),
+('registrar',   'registrar@school.edu',   '$2y$10$XFDqRdFvCPgyrnWC/wI0kOGbP/YI.htDV5gsjv7J/QnBN1hkwA5AK', 'Registrar'),
+('faculty',     'faculty@school.edu',     '$2y$10$XFDqRdFvCPgyrnWC/wI0kOGbP/YI.htDV5gsjv7J/QnBN1hkwA5AK', 'Teacher'),
+('student',     'student@school.edu',     '$2y$10$XFDqRdFvCPgyrnWC/wI0kOGbP/YI.htDV5gsjv7J/QnBN1hkwA5AK', 'Student'),
+('parent',      'parent@school.edu',      '$2y$10$XFDqRdFvCPgyrnWC/wI0kOGbP/YI.htDV5gsjv7J/QnBN1hkwA5AK', 'Parent/Guardian'),
+('accountant',  'accountant@school.edu',  '$2y$10$XFDqRdFvCPgyrnWC/wI0kOGbP/YI.htDV5gsjv7J/QnBN1hkwA5AK', 'Accountant'),
+('librarian',   'librarian@school.edu',   '$2y$10$XFDqRdFvCPgyrnWC/wI0kOGbP/YI.htDV5gsjv7J/QnBN1hkwA5AK', 'Librarian'),
+('guidance',    'guidance@school.edu',    '$2y$10$XFDqRdFvCPgyrnWC/wI0kOGbP/YI.htDV5gsjv7J/QnBN1hkwA5AK', 'Guidance Counselor'),
+('nurse',       'nurse@school.edu',       '$2y$10$XFDqRdFvCPgyrnWC/wI0kOGbP/YI.htDV5gsjv7J/QnBN1hkwA5AK', 'School Nurse');
 
 -- IMPORTANT: After importing, visit http://localhost:8000/api/setup_database.php
 -- to let PHP re-generate the correct bcrypt hashes. The hash above is a
