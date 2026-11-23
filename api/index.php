@@ -8,6 +8,21 @@ require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/config/jwt.php';
 require_once __DIR__ . '/helpers/response.php';
 
+// Global exception handler to return clean JSON and clear diagnostics on 500
+set_exception_handler(function ($e) {
+    Response::initCors();
+    http_response_code(500);
+    header('Content-Type: application/json; charset=UTF-8');
+    echo json_encode([
+        'success' => false,
+        'message' => 'Internal Server Error: ' . $e->getMessage(),
+        'error_type' => get_class($e),
+        'file' => basename($e->getFile()),
+        'line' => $e->getLine()
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+});
+
 Response::initCors();
 
 $method = $_SERVER['REQUEST_METHOD'];
@@ -43,6 +58,15 @@ if ($path === '/api/auth/login' && $method === 'POST') {
 
     if (empty($email) || empty($password)) {
         Response::error('Email and password are required.', 400);
+    }
+
+    try {
+        $check = $pdo->query("SHOW TABLES LIKE 'users'")->fetch();
+        if (!$check) {
+            Response::error("Database tables are not imported yet. Open http://localhost:8000/api/setup_database.php in your browser or import apexsis_database_export.sql in phpMyAdmin.", 500);
+        }
+    } catch (Exception $e) {
+        Response::error("Database error: " . $e->getMessage() . ". Please ensure MySQL is running in XAMPP.", 500);
     }
 
     $stmt = $pdo->prepare("SELECT u.*, up.first_name, up.last_name, up.phone 
