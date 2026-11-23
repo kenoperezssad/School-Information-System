@@ -1,6 +1,17 @@
 # ApexSIS — Enterprise School Information System
 
-ApexSIS is a commercial-grade, full-stack **Enterprise School Information System (SIS)** designed for colleges, universities, and multi-campus institutions. Built with a modern **Glassmorphism UI**, **React 19**, **Tailwind CSS**, **Lucide Icons**, and **Recharts**, backed by a scalable **PHP 8.2 REST API**, **PDO**, and **MySQL**.
+ApexSIS is a commercial-grade, full-stack **Enterprise School Information System (SIS)** designed for colleges, universities, and multi-campus institutions. Built with a modern **Navy & Gold UI**, **React 18**, **Tailwind CSS**, **Lucide Icons**, and **Recharts**, backed by a scalable **PHP 8.2 REST API**, **PDO**, and **MySQL**.
+
+---
+
+## 📚 Capstone & System Documentation
+
+Comprehensive documentation has been prepared for academic defense and institutional deployment:
+
+- 📖 **[Deployment & Setup Guide](docs/DEPLOYMENT_GUIDE.md):** Complete installation, XAMPP config, and multi-PC LAN deployment instructions.
+- ⚙️ **[Technical Architecture Manual](docs/TECHNICAL_MANUAL.md):** System architecture, Mermaid diagrams, API references, and full 32-table Data Dictionary.
+- 👤 **[Comprehensive User Manual](docs/USER_MANUAL.md):** Step-by-step operational workflows for all 9 institutional user roles.
+- 🎓 **[Capstone Project Specification](docs/CAPSTONE_SPECIFICATION.md):** Thesis overview, problem statement, objectives, scope, features matrix, and methodology.
 
 ---
 
