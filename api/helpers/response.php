@@ -8,11 +8,11 @@ class Response {
     private static $cachedPermissions = [];
 
     public static function initCors() {
-        // Whitelist allowed origins from .env (CORS_ORIGINS=http://localhost:5173,https://yourdomain.com)
-        $allowedOrigins = array_map('trim', explode(',', $_ENV['CORS_ORIGINS'] ?? 'http://localhost:5173'));
+        $defaultOrigins = 'http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://127.0.0.1:5173,http://127.0.0.1:5174';
+        $allowedOrigins = array_map('trim', explode(',', $_ENV['CORS_ORIGINS'] ?? $defaultOrigins));
         $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-        if (in_array($origin, $allowedOrigins, true)) {
-            header("Access-Control-Allow-Origin: $origin");
+        if (in_array($origin, $allowedOrigins, true) || preg_match('/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/', $origin)) {
+            header("Access-Control-Allow-Origin: " . ($origin ?: '*'));
             header("Access-Control-Allow-Credentials: true");
         }
         header("Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS");

@@ -19,5 +19,18 @@ function loadEnv(string $path): void {
     }
 }
 
-loadEnv(__DIR__ . '/../.env');
+// Try multiple possible .env locations (handles different working directories)
+$possiblePaths = [
+    __DIR__ . '/../.env',          // normal: api/../.env  = project root
+    __DIR__ . '/../../.env',       // if PHP runs from api/
+    dirname(__DIR__) . '/.env',    // absolute parent dir
+    getcwd() . '/.env',            // current working directory
+];
+
+foreach ($possiblePaths as $envPath) {
+    if (file_exists($envPath)) {
+        loadEnv($envPath);
+        break;
+    }
+}
 
