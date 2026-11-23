@@ -11,7 +11,7 @@ export const AuthProvider = ({ children }) => {
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem('apex_theme') === 'dark';
   });
-  const [toast, setToast] = useState(null);
+  const [toasts, setToasts] = useState([]);
 
   // Apply dark mode class to html document
   useEffect(() => {
@@ -27,10 +27,26 @@ export const AuthProvider = ({ children }) => {
   const toggleDarkMode = () => setDarkMode(prev => !prev);
 
   const showToast = (message, type = 'success') => {
-    setToast({ message, type, id: Date.now() });
+    const id = Date.now() + Math.random();
+    setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
-      setToast(null);
+      setToasts(prev => prev.filter(t => t.id !== id));
     }, 4000);
+  };
+
+  const dismissToast = (id) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  // ⚠️ IMPORTANT: logout MUST be declared BEFORE the fetchUser useEffect
+  // because it is called inside the useEffect catch block.
+  // const arrow functions are NOT hoisted — placing them after the useEffect
+  // causes a ReferenceError (Temporal Dead Zone) at runtime.
+  const logout = () => {
+    localStorage.removeItem('apex_token');
+    setToken(null);
+    setUser(null);
+    showToast('You have been signed out.', 'info');
   };
 
   // Fetch current user details if token exists
@@ -45,17 +61,22 @@ export const AuthProvider = ({ children }) => {
         if (res.success && res.data) {
           setUser(res.data);
         } else {
+          // Invalid or expired token — clear session
           logout();
         }
       } catch (err) {
         console.error('Auth verification failed:', err);
-        logout(); // Clear stale/invalid token so user is redirected to login
+        // On network error (e.g. PHP server down), don't force logout.
+        // Just stop loading so the user stays on the current page.
+        setLoading(false);
+        return;
       } finally {
         setLoading(false);
       }
     };
 
     fetchUser();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const login = async (email, password) => {
@@ -69,13 +90,6 @@ export const AuthProvider = ({ children }) => {
       return userData;
     }
     throw new Error(res.message || 'Login failed.');
-  };
-
-  const logout = () => {
-    localStorage.removeItem('apex_token');
-    setToken(null);
-    setUser(null);
-    showToast('You have been logged out.', 'info');
   };
 
   const switchRole = async (targetRole) => {
@@ -104,7 +118,8 @@ export const AuthProvider = ({ children }) => {
       switchRole,
       darkMode,
       toggleDarkMode,
-      toast,
+      toasts,
+      dismissToast,
       showToast
     }}>
       {children}

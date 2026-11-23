@@ -1,5 +1,6 @@
 // src/pages/FinancePage.jsx
 import React, { useState, useEffect, useCallback } from 'react';
+import { PesoSign } from '../components/common/PesoSign';
 import api from '../api/client';
 import { PageHeader } from '../components/common/PageHeader';
 import { DataTable } from '../components/common/DataTable';
@@ -7,15 +8,26 @@ import { Button } from '../components/common/Button';
 import { Badge } from '../components/common/Badge';
 import { Modal } from '../components/common/Modal';
 import { Tabs } from '../components/common/Tabs';
+import { GlassCard } from '../components/common/GlassCard';
 import { useAuth } from '../context/AuthContext';
 import {
-  DollarSign,
   Receipt,
-  Printer
+  Printer,
+  FileText,
+  TrendingDown,
+  CheckCircle2,
+  AlertCircle,
+  CreditCard,
+  Wallet,
+  Info
 } from 'lucide-react';
 
 export const FinancePage = () => {
-  const { showToast } = useAuth();
+  const { user, showToast } = useAuth();
+  const isStudent = user?.role === 'Student';
+  const isParent = user?.role === 'Parent/Guardian';
+  const isAccountant = user?.role === 'Accountant' || user?.role === 'Super Administrator';
+  // Students & parents get read-only view; accountants get full cashier terminal
   const [activeTab, setActiveTab] = useState('invoices');
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -77,14 +89,14 @@ export const FinancePage = () => {
     {
       header: 'Invoice No.',
       accessor: 'invoice_no',
-      render: (row) => <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{row.invoice_no}</span>,
+      render: (row) => <span className="font-mono font-bold text-navy-700 dark:text-navy-400">{row.invoice_no}</span>,
     },
     {
       header: 'Student',
       render: (row) => (
         <div>
           <p className="font-bold text-slate-900 dark:text-white">{row.last_name}, {row.first_name}</p>
-          <p className="text-[11px] font-mono text-slate-400">{row.student_number} • {row.program_code}</p>
+          <p className="text-[11px] font-mono text-slate-400">{row.student_number} â€¢ {row.program_code}</p>
         </div>
       ),
     },
@@ -94,13 +106,13 @@ export const FinancePage = () => {
     },
     {
       header: 'Total Amount',
-      render: (row) => <span className="font-bold text-slate-900 dark:text-white">₱{Number(row.amount).toLocaleString()}</span>,
+      render: (row) => <span className="font-bold text-slate-900 dark:text-white">PHP {Number(row.amount).toLocaleString()}</span>,
     },
     {
       header: 'Outstanding Balance',
       render: (row) => (
         <span className={`font-bold ${Number(row.balance) > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-          ₱{Number(row.balance).toLocaleString()}
+          PHP {Number(row.balance).toLocaleString()}
         </span>
       ),
     },
@@ -116,6 +128,7 @@ export const FinancePage = () => {
       header: 'Action',
       className: 'text-right',
       render: (row) => (
+        isAccountant ? (
         <Button
           size="sm"
           variant="primary"
@@ -133,6 +146,11 @@ export const FinancePage = () => {
         >
           Accept Payment
         </Button>
+        ) : (
+          <span className={`text-xs font-bold ${Number(row.balance) > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+            {Number(row.balance) > 0 ? 'Balance Due' : 'âœ“ Settled'}
+          </span>
+        )
       ),
     },
   ];
@@ -154,7 +172,7 @@ export const FinancePage = () => {
     },
     {
       header: 'Amount Paid',
-      render: (row) => <span className="font-extrabold text-slate-900 dark:text-white">₱{Number(row.amount).toLocaleString()}</span>,
+      render: (row) => <span className="font-extrabold text-slate-900 dark:text-white">PHP {Number(row.amount).toLocaleString()}</span>,
     },
     {
       header: 'Payment Method',
@@ -197,18 +215,84 @@ export const FinancePage = () => {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Student Accounting & Cashier Collection"
-        subtitle="Manage billing statements, multi-channel payment acceptance (Cash, GCash, Maya, Bank Transfer), and Official Receipt (OR) generation"
+        title={
+          isStudent ? 'My Tuition & Statement of Account' :
+          isParent ? "Ward's Tuition & Billing Statement" :
+          'Student Accounting & Cashier Collection'
+        }
+        subtitle={
+          isStudent ? 'View your billing assessments, outstanding balances, and official payment receipts for this academic term' :
+          isParent ? "Monitor your ward's tuition assessments and payment history" :
+          'Manage billing statements, multi-channel payment acceptance (Cash, GCash, Maya, Bank Transfer), and Official Receipt (OR) generation'
+        }
         actions={
-          <Button
-            variant="primary"
-            icon={DollarSign}
-            onClick={() => setCashierModalOpen(true)}
-          >
-            Open Cashier Drawer
-          </Button>
+          isAccountant ? (
+            <Button
+              variant="primary"
+              icon={PesoSign}
+              onClick={() => setCashierModalOpen(true)}
+            >
+              Open Cashier Drawer
+            </Button>
+          ) : null
         }
       />
+
+      {/* Student / Parent: Summary cards */}
+      {(isStudent || isParent) && !loading && invoices.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[
+            {
+              label: 'Total Assessment',
+              value: `PHP ${invoices.reduce((s, r) => s + Number(r.amount), 0).toLocaleString()}`,
+              icon: FileText,
+              color: 'navy',
+              sub: `${invoices.length} billing item${invoices.length > 1 ? 's' : ''}`
+            },
+            {
+              label: 'Total Paid',
+              value: `PHP ${payments.reduce((s, r) => s + Number(r.amount), 0).toLocaleString()}`,
+              icon: CheckCircle2,
+              color: 'emerald',
+              sub: `${payments.length} official receipt${payments.length > 1 ? 's' : ''}`
+            },
+            {
+              label: 'Outstanding Balance',
+              value: `PHP ${invoices.reduce((s, r) => s + Number(r.balance), 0).toLocaleString()}`,
+              icon: TrendingDown,
+              color: 'rose',
+              sub: invoices.some(r => Number(r.balance) > 0) ? 'Has unpaid balance' : 'Fully paid âœ“'
+            },
+          ].map(({ label, value, icon: Icon, color, sub }) => (
+            <GlassCard key={label} className={`p-5 border border-${color}-100 dark:border-${color}-900/40 bg-${color}-50/20 dark:bg-${color}-950/20`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</p>
+                  <p className={`text-2xl font-extrabold text-${color}-600 dark:text-${color}-400 mt-1 tracking-tight`}>{value}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{sub}</p>
+                </div>
+                <div className={`w-11 h-11 rounded-2xl bg-${color}-100 dark:bg-${color}-950/50 flex items-center justify-center`}>
+                  <Icon className={`w-5 h-5 text-${color}-600 dark:text-${color}-400`} />
+                </div>
+              </div>
+            </GlassCard>
+          ))}
+        </div>
+      )}
+
+      {/* Payment notice banner for students */}
+      {isStudent && invoices.some(r => Number(r.balance) > 0) && (
+        <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs">
+          <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-bold text-amber-800 dark:text-amber-200">Outstanding Balance Reminder</p>
+            <p className="text-amber-700 dark:text-amber-300 mt-0.5">
+              You have an outstanding balance. Please proceed to the Cashier's Office or use GCash/Maya to settle your account.
+              Clearance will not be issued until full payment or approved installment agreement is on file.
+            </p>
+          </div>
+        </div>
+      )}
 
       <Tabs
         activeTab={activeTab}
@@ -235,7 +319,8 @@ export const FinancePage = () => {
         />
       )}
 
-      {/* Cashier Payment Drawer Modal */}
+      {/* Cashier Payment Drawer Modal - Accountant only */}
+      {isAccountant && (
       <Modal
         isOpen={cashierModalOpen}
         onClose={() => setCashierModalOpen(false)}
@@ -312,13 +397,14 @@ export const FinancePage = () => {
           </div>
         </form>
       </Modal>
+      )}
 
       {/* Official Receipt Print Preview Modal */}
       <Modal
         isOpen={!!selectedReceipt}
         onClose={() => setSelectedReceipt(null)}
         title="Official Receipt (OR) Print Preview"
-        subtitle="Republic of the Philippines • Bureau of Internal Revenue Registered"
+        subtitle="Republic of the Philippines â€¢ Bureau of Internal Revenue Registered"
         maxWidth="max-w-xl"
       >
         {selectedReceipt && (
@@ -330,12 +416,12 @@ export const FinancePage = () => {
                   APEX STATE UNIVERSITY
                 </h3>
                 <p className="text-[10px] text-slate-600">
-                  TIN: 009-847-210-000 • VAT-Registered
+                  TIN: 009-847-210-000 â€¢ VAT-Registered
                 </p>
                 <p className="text-[10px] text-slate-600">
                   100 University Boulevard, Metro Manila
                 </p>
-                <p className="text-sm font-bold mt-2 text-indigo-900">
+                <p className="text-sm font-bold mt-2 text-navy-700">
                   OFFICIAL RECEIPT
                 </p>
                 <p className="text-xs font-bold text-rose-600">
@@ -375,14 +461,14 @@ export const FinancePage = () => {
                 </div>
                 <div className="flex justify-between">
                   <span>{selectedReceipt.remarks || 'Tuition & Academic Fees'}</span>
-                  <span>₱{Number(selectedReceipt.amount).toLocaleString()}</span>
+                  <span>PHP {Number(selectedReceipt.amount).toLocaleString()}</span>
                 </div>
               </div>
 
               {/* Total */}
               <div className="flex justify-between text-sm font-extrabold pt-1">
                 <span>TOTAL AMOUNT PAID:</span>
-                <span className="text-indigo-900">₱{Number(selectedReceipt.amount).toLocaleString()}</span>
+                <span className="text-navy-700">PHP {Number(selectedReceipt.amount).toLocaleString()}</span>
               </div>
 
               {/* Cashier Footer */}
@@ -403,3 +489,6 @@ export const FinancePage = () => {
     </div>
   );
 };
+
+
+

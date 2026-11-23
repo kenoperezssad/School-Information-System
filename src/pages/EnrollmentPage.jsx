@@ -1,5 +1,6 @@
-// src/pages/EnrollmentPage.jsx
+﻿// src/pages/EnrollmentPage.jsx
 import React, { useState, useEffect } from 'react';
+import { PesoSign } from '../components/common/PesoSign';
 import api from '../api/client';
 import { PageHeader } from '../components/common/PageHeader';
 import { DataTable } from '../components/common/DataTable';
@@ -12,7 +13,6 @@ import {
   FileCheck,
   Printer,
   QrCode,
-  DollarSign,
   BookOpen,
   ArrowRight,
   ShieldCheck
@@ -31,7 +31,7 @@ export const EnrollmentPage = () => {
     setLoading(true);
     try {
       const res = await api.get('/enrollments');
-      if (res.success) setEnrollments(res.data);
+      if (res.success && res.data) setEnrollments(res.data);
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -87,7 +87,7 @@ export const EnrollmentPage = () => {
     {
       header: 'COR Number',
       accessor: 'cor_number',
-      render: (row) => <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{row.cor_number}</span>,
+      render: (row) => <span className="font-mono font-bold text-navy-700 dark:text-navy-400">{row.cor_number}</span>,
     },
     {
       header: 'Student',
@@ -115,7 +115,7 @@ export const EnrollmentPage = () => {
       header: 'Net Assessment',
       render: (row) => (
         <span className="font-bold text-emerald-600 dark:text-emerald-400">
-          ₱{Number(row.net_amount).toLocaleString()}
+          PHP {Number(row.net_amount).toLocaleString()}
         </span>
       ),
     },
@@ -177,19 +177,19 @@ export const EnrollmentPage = () => {
             {/* Printable Document Box */}
             <div className="p-6 sm:p-8 bg-white text-slate-900 rounded-2xl border border-slate-300 print-card shadow-sm space-y-6">
               {/* Document Header */}
-              <div className="flex items-center justify-between pb-4 border-b-2 border-indigo-900">
+              <div className="flex items-center justify-between pb-4 border-b-2 border-navy-700">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-900 text-white flex items-center justify-center font-bold text-lg">
+                  <div className="w-12 h-12 rounded-2xl bg-navy-900 text-white flex items-center justify-center font-bold text-lg">
                     🎓
                   </div>
                   <div>
-                    <h2 className="text-lg font-extrabold uppercase tracking-tight text-indigo-950">
+                    <h2 className="text-lg font-extrabold uppercase tracking-tight text-navy-700">
                       Apex State University System
                     </h2>
                     <p className="text-xs text-slate-600 font-medium">
                       Office of the Registrar • Main Metro Campus
                     </p>
-                    <p className="text-[11px] font-bold text-indigo-700">
+                    <p className="text-[11px] font-bold text-navy-700">
                       CERTIFICATE OF REGISTRATION & MATRICULATION
                     </p>
                   </div>
@@ -211,7 +211,7 @@ export const EnrollmentPage = () => {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs">
                 <div>
                   <span className="text-slate-500 block text-[10px] uppercase font-bold">Student Number</span>
-                  <span className="font-mono font-bold text-indigo-900">{selectedEnrollment.student_number}</span>
+                  <span className="font-mono font-bold text-navy-700">{selectedEnrollment.student_number}</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block text-[10px] uppercase font-bold">Student Name</span>
@@ -248,7 +248,7 @@ export const EnrollmentPage = () => {
                     <tbody className="divide-y divide-slate-200">
                       {(selectedEnrollment.subjects || []).map((sub, idx) => (
                         <tr key={idx}>
-                          <td className="p-2.5 font-mono font-bold text-indigo-900">{sub.code}</td>
+                          <td className="p-2.5 font-mono font-bold text-navy-700">{sub.code}</td>
                           <td className="p-2.5 font-semibold text-slate-900">{sub.title}</td>
                           <td className="p-2.5 text-center">{sub.lecture_units}</td>
                           <td className="p-2.5 text-center">{sub.lab_units}</td>
@@ -261,7 +261,7 @@ export const EnrollmentPage = () => {
                     <tfoot className="bg-slate-50 font-bold border-t border-slate-200">
                       <tr>
                         <td colSpan={4} className="p-2.5 text-right uppercase">Total Academic Load Units:</td>
-                        <td className="p-2.5 text-center text-indigo-950 text-sm">{selectedEnrollment.total_units}</td>
+                        <td className="p-2.5 text-center text-navy-700 text-sm">{selectedEnrollment.total_units}</td>
                         <td colSpan={2}></td>
                       </tr>
                     </tfoot>
@@ -275,30 +275,30 @@ export const EnrollmentPage = () => {
                   <span className="font-bold uppercase text-[10px] text-slate-500 block">Schedule of Fees Assessment</span>
                   <div className="flex justify-between">
                     <span>Tuition Fee Assessment:</span>
-                    <span className="font-semibold">₱{Number(selectedEnrollment.tuition_amount).toLocaleString()}</span>
+                    <span className="font-semibold">PHP {Number(selectedEnrollment.tuition_amount).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Laboratory & Misc Fees:</span>
-                    <span className="font-semibold">₱{Number(selectedEnrollment.misc_amount).toLocaleString()}</span>
+                    <span className="font-semibold">PHP {Number(selectedEnrollment.misc_amount).toLocaleString()}</span>
                   </div>
                   {Number(selectedEnrollment.discount_amount) > 0 && (
                     <div className="flex justify-between text-emerald-700 font-semibold">
                       <span>Institutional Scholarship Grant:</span>
-                      <span>-₱{Number(selectedEnrollment.discount_amount).toLocaleString()}</span>
+                      <span>-PHP {Number(selectedEnrollment.discount_amount).toLocaleString()}</span>
                     </div>
                   )}
-                  <div className="flex justify-between pt-2 border-t border-slate-200 font-bold text-sm text-indigo-950">
+                  <div className="flex justify-between pt-2 border-t border-slate-200 font-bold text-sm text-navy-700">
                     <span>Net Amount Due:</span>
-                    <span>₱{Number(selectedEnrollment.net_amount).toLocaleString()}</span>
+                    <span>PHP {Number(selectedEnrollment.net_amount).toLocaleString()}</span>
                   </div>
                 </div>
 
-                <div className="p-4 rounded-xl bg-indigo-50/60 border border-indigo-200 text-xs flex flex-col justify-between">
+                <div className="p-4 rounded-xl bg-navy-50/60 border border-navy-200 text-xs flex flex-col justify-between">
                   <div className="flex items-center gap-3">
-                    <QrCode className="w-12 h-12 text-indigo-900" />
+                    <QrCode className="w-12 h-12 text-navy-700" />
                     <div>
-                      <p className="font-bold text-indigo-950">Digital Document Seal</p>
-                      <p className="text-[10px] text-indigo-700">
+                      <p className="font-bold text-navy-700">Digital Document Seal</p>
+                      <p className="text-[10px] text-navy-700">
                         Token: {selectedEnrollment.cor_number}
                       </p>
                       <p className="text-[10px] text-slate-500">
@@ -306,7 +306,7 @@ export const EnrollmentPage = () => {
                       </p>
                     </div>
                   </div>
-                  <div className="mt-4 pt-3 border-t border-indigo-200 text-center">
+                  <div className="mt-4 pt-3 border-t border-navy-200 text-center">
                     <p className="font-bold text-slate-800">DR. ELENA ROBLES, Ph.D.</p>
                     <p className="text-[10px] text-slate-500 uppercase">University Registrar</p>
                   </div>
@@ -354,3 +354,6 @@ export const EnrollmentPage = () => {
     </div>
   );
 };
+
+
+

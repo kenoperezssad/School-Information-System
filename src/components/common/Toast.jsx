@@ -26,14 +26,14 @@ export const Toast = ({ toasts: propToasts, onClose }) => {
     success: <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />,
     error: <AlertCircle className="w-5 h-5 text-rose-500 shrink-0" />,
     warning: <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />,
-    info: <Info className="w-5 h-5 text-sky-500 shrink-0" />,
+    info: <Info className="w-5 h-5 text-slate-500 shrink-0" />,
   };
 
   const borders = {
     success: 'border-emerald-500/30',
     error: 'border-rose-500/30',
     warning: 'border-amber-500/30',
-    info: 'border-sky-500/30',
+    info: 'border-slate-400/30',
   };
 
   return (

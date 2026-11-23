@@ -50,7 +50,7 @@ export const AdmissionsPage = () => {
     setLoading(true);
     try {
       const res = await api.get('/admissions');
-      if (res.success) setApplicants(res.data);
+      if (res.success && res.data) setApplicants(res.data);
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -61,7 +61,7 @@ export const AdmissionsPage = () => {
   useEffect(() => {
     fetchApplicants();
     api.get('/academic/metadata').then(res => {
-      if (res.success) setMetadata(res.data);
+      if (res.success && res.data) setMetadata(res.data);
     });
   }, []);
 
@@ -143,7 +143,7 @@ export const AdmissionsPage = () => {
     {
       header: 'Application No.',
       accessor: 'application_no',
-      render: (row) => <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{row.application_no}</span>,
+      render: (row) => <span className="font-mono font-bold text-navy-700 dark:text-navy-400">{row.application_no}</span>,
     },
     {
       header: 'Applicant Name',
@@ -343,3 +343,6 @@ export const AdmissionsPage = () => {
     </div>
   );
 };
+
+
+

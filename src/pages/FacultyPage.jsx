@@ -42,7 +42,7 @@ export const FacultyPage = () => {
     setLoading(true);
     try {
       const res = await api.get('/faculty');
-      if (res.success) setFaculty(res.data);
+      if (res.success && res.data) setFaculty(res.data);
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -53,7 +53,7 @@ export const FacultyPage = () => {
   useEffect(() => {
     fetchFaculty();
     api.get('/academic/metadata').then(res => {
-      if (res.success) setMetadata(res.data);
+      if (res.success && res.data) setMetadata(res.data);
     });
   }, [fetchFaculty]);
 
@@ -78,13 +78,13 @@ export const FacultyPage = () => {
     {
       header: 'Employee ID',
       accessor: 'employee_no',
-      render: (row) => <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{row.employee_no}</span>,
+      render: (row) => <span className="font-mono font-bold text-navy-700 dark:text-navy-400">{row.employee_no}</span>,
     },
     {
       header: 'Faculty Name',
       render: (row) => (
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 flex items-center justify-center font-bold text-xs shrink-0">
+          <div className="w-8 h-8 rounded-full bg-navy-100 dark:bg-navy-950/60 text-navy-700 dark:text-navy-300 flex items-center justify-center font-bold text-xs shrink-0">
             {row.first_name[0]}
           </div>
           <div>
@@ -123,7 +123,7 @@ export const FacultyPage = () => {
             </div>
             <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
               <div
-                className={`h-full rounded-full ${pct >= 100 ? 'bg-rose-500' : 'bg-indigo-600'}`}
+                className={`h-full rounded-full ${pct >= 100 ? 'bg-rose-500' : 'bg-navy-800'}`}
                 style={{ width: `${pct}%` }}
               />
             </div>
@@ -271,3 +271,6 @@ export const FacultyPage = () => {
     </div>
   );
 };
+
+
+

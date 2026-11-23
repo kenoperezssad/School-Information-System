@@ -162,14 +162,14 @@ export const OperationsPage = () => {
     {
       header: 'Asset Tag',
       accessor: 'asset_tag',
-      render: (row) => <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{row.asset_tag}</span>,
+      render: (row) => <span className="font-mono font-bold text-navy-700 dark:text-navy-400">{row.asset_tag}</span>,
     },
     {
       header: 'Item Description',
       render: (row) => (
         <div>
           <p className="font-bold text-slate-900 dark:text-white">{row.item_name}</p>
-          <p className="text-[11px] text-slate-400">{row.category} • {row.quantity} {row.unit}</p>
+          <p className="text-[11px] text-slate-400">{row.category} â€¢ {row.quantity} {row.unit}</p>
         </div>
       ),
     },
@@ -187,7 +187,7 @@ export const OperationsPage = () => {
     },
     {
       header: 'Unit Cost',
-      render: (row) => <span className="font-bold">₱{Number(row.unit_cost).toLocaleString()}</span>,
+      render: (row) => <span className="font-bold">PHP {Number(row.unit_cost).toLocaleString()}</span>,
     },
   ];
 
@@ -195,7 +195,7 @@ export const OperationsPage = () => {
     {
       header: 'Employee ID',
       accessor: 'employee_id',
-      render: (row) => <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{row.employee_id}</span>,
+      render: (row) => <span className="font-mono font-bold text-navy-700 dark:text-navy-400">{row.employee_id}</span>,
     },
     {
       header: 'Staff Member',
@@ -298,19 +298,19 @@ export const OperationsPage = () => {
       render: (row) => (
         <div>
           <p className="font-bold text-slate-900 dark:text-white">{row.last_name}, {row.first_name}</p>
-          <p className="text-[11px] font-mono text-slate-400">{row.student_number} • {row.program_code}</p>
+          <p className="text-[11px] font-mono text-slate-400">{row.student_number} â€¢ {row.program_code}</p>
         </div>
       ),
     },
     {
       header: 'Cumulative GPA',
-      render: (row) => <span className="font-extrabold text-base text-indigo-600 dark:text-indigo-400">{row.gpa}</span>,
+      render: (row) => <span className="font-extrabold text-base text-navy-700 dark:text-navy-400">{row.gpa}</span>,
     },
     {
       header: 'Academic Honors Distinction',
       render: (row) => (
         row.academic_distinction !== 'None' ? (
-          <Badge variant="success" className="font-extrabold">🏆 {row.academic_distinction}</Badge>
+          <Badge variant="success" className="font-extrabold">ðŸ† {row.academic_distinction}</Badge>
         ) : <span className="text-slate-400 text-xs">Standard Conferment</span>
       ),
     },
@@ -648,7 +648,7 @@ export const OperationsPage = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Unit Cost (₱)</label>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Unit Cost (PHP)</label>
               <input
                 type="number"
                 min="0"
@@ -669,3 +669,6 @@ export const OperationsPage = () => {
     </div>
   );
 };
+
+
+

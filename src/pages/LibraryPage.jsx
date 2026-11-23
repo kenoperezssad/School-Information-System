@@ -1,5 +1,6 @@
 // src/pages/LibraryPage.jsx
 import React, { useState, useEffect } from 'react';
+import { PesoSign } from '../components/common/PesoSign';
 import api from '../api/client';
 import { PageHeader } from '../components/common/PageHeader';
 import { DataTable } from '../components/common/DataTable';
@@ -15,11 +16,12 @@ import {
   Plus,
   AlertTriangle,
   Library,
-  DollarSign
 } from 'lucide-react';
 
 export const LibraryPage = () => {
-  const { showToast } = useAuth();
+  const { user, showToast } = useAuth();
+  const isStudent = user?.role === 'Student';
+  const isLibrarian = user?.role === 'Librarian' || user?.role === 'Super Administrator';
   const [activeTab, setActiveTab] = useState('catalog');
   const [books, setBooks] = useState([]);
   const [borrowings, setBorrowings] = useState([]);
@@ -75,7 +77,7 @@ export const LibraryPage = () => {
       const res = await api.post('/library/return', { borrowing_id: borrowingId });
       if (res.success) {
         if (res.data.fine_amount > 0) {
-          showToast(`Book returned! Overdue fine assessed: ₱${res.data.fine_amount}`, 'warning');
+          showToast(`Book returned! Overdue fine assessed: PHP ${res.data.fine_amount}`, 'warning');
         } else {
           showToast('Book returned on time without fines.', 'success');
         }
@@ -90,7 +92,7 @@ export const LibraryPage = () => {
     {
       header: 'ISBN',
       accessor: 'isbn',
-      render: (row) => <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{row.isbn}</span>,
+      render: (row) => <span className="font-mono font-bold text-navy-700 dark:text-navy-400">{row.isbn}</span>,
     },
     {
       header: 'Book Title',
@@ -158,8 +160,8 @@ export const LibraryPage = () => {
       header: 'Fine',
       render: (row) => (
         Number(row.fine_amount) > 0 ? (
-          <span className="font-bold text-rose-600 dark:text-rose-400">₱{row.fine_amount}</span>
-        ) : <span className="text-slate-400">—</span>
+          <span className="font-bold text-rose-600 dark:text-rose-400">PHP {row.fine_amount}</span>
+        ) : <span className="text-slate-400">â€”</span>
       ),
     },
     {
@@ -183,16 +185,22 @@ export const LibraryPage = () => {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Library Information & Circulation"
-        subtitle="Catalog discovery, inventory shelf tracking, student loans, and automated overdue fine calculations"
+        title={isStudent ? 'Library Catalog & My Borrowings' : 'Library Information & Circulation'}
+        subtitle={
+          isStudent
+            ? 'Search the library catalog, view available books, and track your personal borrowing history and due dates'
+            : 'Catalog discovery, inventory shelf tracking, student loans, and automated overdue fine calculations'
+        }
         actions={
-          <Button
-            variant="primary"
-            icon={Plus}
-            onClick={() => setIssueModalOpen(true)}
-          >
-            Issue Book Loan
-          </Button>
+          isLibrarian ? (
+            <Button
+              variant="primary"
+              icon={Plus}
+              onClick={() => setIssueModalOpen(true)}
+            >
+              Issue Book Loan
+            </Button>
+          ) : null
         }
       />
 
@@ -200,8 +208,8 @@ export const LibraryPage = () => {
         activeTab={activeTab}
         onChange={setActiveTab}
         tabs={[
-          { id: 'catalog', label: 'Book Collection Catalog', icon: BookOpen, count: books.length },
-          { id: 'borrowings', label: 'Circulation & Borrowings', icon: BookmarkCheck, count: borrowings.length },
+          { id: 'catalog', label: isStudent ? 'Book Catalog' : 'Book Collection Catalog', icon: BookOpen, count: books.length },
+          { id: 'borrowings', label: isStudent ? 'My Borrowed Books' : 'Circulation & Borrowings', icon: BookmarkCheck, count: borrowings.length },
         ]}
       />
 
@@ -221,7 +229,8 @@ export const LibraryPage = () => {
         />
       )}
 
-      {/* Issue Book Modal */}
+      {/* Issue Book Modal â€” Librarian only */}
+      {isLibrarian && (
       <Modal
         isOpen={issueModalOpen}
         onClose={() => setIssueModalOpen(false)}
@@ -263,6 +272,10 @@ export const LibraryPage = () => {
           </div>
         </form>
       </Modal>
+      )}
     </div>
   );
 };
+
+
+

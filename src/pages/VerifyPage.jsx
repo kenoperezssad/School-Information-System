@@ -1,4 +1,4 @@
-// src/pages/VerifyPage.jsx
+﻿// src/pages/VerifyPage.jsx
 import React, { useState } from 'react';
 import api from '../api/client';
 import { PageHeader } from '../components/common/PageHeader';
@@ -63,7 +63,7 @@ export const VerifyPage = () => {
       {/* Verification Input Box */}
       <GlassCard className="p-6 sm:p-8 max-w-2xl mx-auto space-y-5">
         <div className="text-center space-y-1">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto mb-2">
+          <div className="w-12 h-12 rounded-2xl bg-navy-50 dark:bg-navy-950/60 text-navy-700 dark:text-navy-400 flex items-center justify-center mx-auto mb-2">
             <QrCode className="w-6 h-6" />
           </div>
           <h3 className="text-lg font-bold text-slate-900 dark:text-white">
@@ -84,7 +84,7 @@ export const VerifyPage = () => {
                 setTokenInput(s.token);
                 handleVerify(s.token);
               }}
-              className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 transition-colors"
+              className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-navy-100 dark:hover:bg-navy-950/60 border border-slate-200 dark:border-slate-700 transition-colors"
             >
               Verify {s.label}
             </button>
@@ -151,7 +151,7 @@ export const VerifyPage = () => {
               </div>
               <div>
                 <span className="text-slate-400 block">Reference Identifier</span>
-                <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{verifiedRecord.reference_id}</span>
+                <span className="font-mono font-bold text-navy-700 dark:text-navy-400">{verifiedRecord.reference_id}</span>
               </div>
               <div>
                 <span className="text-slate-400 block">Digital Verification Date</span>
@@ -176,3 +176,6 @@ export const VerifyPage = () => {
     </div>
   );
 };
+
+
+

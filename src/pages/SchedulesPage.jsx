@@ -1,11 +1,12 @@
 // src/pages/SchedulesPage.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import api from '../api/client';
 import { PageHeader } from '../components/common/PageHeader';
 import { DataTable } from '../components/common/DataTable';
 import { Button } from '../components/common/Button';
 import { Badge } from '../components/common/Badge';
 import { Modal } from '../components/common/Modal';
+import { GlassCard } from '../components/common/GlassCard';
 import { useAuth } from '../context/AuthContext';
 import {
   Calendar,
@@ -15,14 +16,29 @@ import {
   CheckCircle2,
   Plus,
   ShieldAlert,
-  UserCheck
+  UserCheck,
+  BookOpen,
+  User,
+  School,
+  Layers
 } from 'lucide-react';
 
 export const SchedulesPage = () => {
-  const { showToast } = useAuth();
+  const { user, showToast } = useAuth();
+  const isStudent = user?.role === 'Student';
+  const isParent = user?.role === 'Parent/Guardian';
+  const isTeacher = user?.role === 'Teacher';
+  const isAdmin = !isStudent && !isParent && !isTeacher;
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [metadata, setMetadata] = useState(null);
+
+  // Timetable day grouping for student view
+  const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const DAY_COLORS = {
+    Monday: 'navy', Tuesday: 'navy', Wednesday: 'emerald',
+    Thursday: 'amber', Friday: 'rose', Saturday: 'navy'
+  };
 
   // Add Schedule Modal
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -44,7 +60,7 @@ export const SchedulesPage = () => {
     setLoading(true);
     try {
       const res = await api.get('/schedules');
-      if (res.success) setSchedules(res.data);
+      if (res.success && res.data) setSchedules(res.data);
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -55,7 +71,7 @@ export const SchedulesPage = () => {
   useEffect(() => {
     fetchSchedules();
     api.get('/academic/metadata').then(res => {
-      if (res.success) setMetadata(res.data);
+      if (res.success && res.data) setMetadata(res.data);
     });
   }, []);
 
@@ -103,7 +119,7 @@ export const SchedulesPage = () => {
       header: 'Course Subject',
       render: (row) => (
         <div>
-          <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{row.subject_code}</span>
+          <span className="font-mono font-bold text-navy-700 dark:text-navy-400">{row.subject_code}</span>
           <span className="text-xs font-semibold text-slate-900 dark:text-white block">{row.subject_title}</span>
         </div>
       ),
@@ -155,28 +171,125 @@ export const SchedulesPage = () => {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Class Schedules & Timetable Master"
-        subtitle="Master timetable management with automated triple-conflict detection (Teacher, Room, and Section collisions)"
+        title={
+          isStudent ? 'My Class Timetable' :
+          isParent ? 'Ward Class Timetable' :
+          isTeacher ? 'My Teaching Schedule' :
+          'Class Schedules & Timetable Master'
+        }
+        subtitle={
+          isStudent ? 'Your weekly class schedule, assigned rooms, and faculty instructors for this semester' :
+          isParent ? "Your ward's weekly class schedule and room assignments" :
+          isTeacher ? 'Your assigned teaching loads, sections, and classroom allocations for this term' :
+          'Master timetable management with automated triple-conflict detection (Teacher, Room, and Section collisions)'
+        }
         actions={
-          <Button
-            variant="primary"
-            icon={Plus}
-            onClick={() => {
-              setConflictResult(null);
-              setAddModalOpen(true);
-            }}
-          >
-            Assign Class Slot
-          </Button>
+          isAdmin ? (
+            <Button
+              variant="primary"
+              icon={Plus}
+              onClick={() => {
+                setConflictResult(null);
+                setAddModalOpen(true);
+              }}
+            >
+              Assign Class Slot
+            </Button>
+          ) : null
         }
       />
 
-      <DataTable
-        columns={columns}
-        data={schedules}
-        loading={loading}
-        searchPlaceholder="Search schedules by subject, section, day, or professor..."
-      />
+      {/* Visual Timetable Card for Student / Parent / Teacher */}
+      {(isStudent || isParent || isTeacher) && !loading && schedules.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {DAYS.map(day => {
+            const daySlots = schedules.filter(s => s.day_of_week === day);
+            if (!daySlots.length) return null;
+            const color = DAY_COLORS[day];
+            return (
+              <GlassCard key={day} className={`p-5 border border-${color}-100 dark:border-${color}-900/40`}>
+                <div className={`flex items-center gap-2 mb-3 pb-3 border-b border-${color}-100 dark:border-${color}-800/40`}>
+                  <div className={`w-8 h-8 rounded-xl bg-${color}-50 dark:bg-${color}-950/50 flex items-center justify-center`}>
+                    <Calendar className={`w-4 h-4 text-${color}-600 dark:text-${color}-400`} />
+                  </div>
+                  <div>
+                    <p className="font-extrabold text-sm text-slate-900 dark:text-white">{day}</p>
+                    <p className="text-[10px] text-slate-400">{daySlots.length} class{daySlots.length > 1 ? 'es' : ''}</p>
+                  </div>
+                </div>
+                <div className="space-y-2.5">
+                  {daySlots.map((s, i) => (
+                    <div key={i} className={`p-3 rounded-xl bg-${color}-50/50 dark:bg-${color}-950/20 border border-${color}-100 dark:border-${color}-900/30`}>
+                      <p className={`font-mono font-bold text-xs text-${color}-600 dark:text-${color}-400`}>{s.subject_code}</p>
+                      <p className="font-semibold text-sm text-slate-800 dark:text-slate-200 leading-tight">{s.subject_title}</p>
+                      <div className="flex items-center gap-3 mt-1.5 text-[11px] text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {s.start_time?.substring(0,5)} – {s.end_time?.substring(0,5)}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {s.room_number}
+                        </span>
+                      </div>
+                      {!isStudent && !isParent && (
+                        <p className="text-[10px] text-slate-400 mt-1">Section: {s.section_name}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Summary KPI row for teacher */}
+      {isTeacher && !loading && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {[
+            { label: 'Total Loads', value: schedules.length, icon: BookOpen, color: 'navy' },
+            { label: 'Unique Subjects', value: [...new Set(schedules.map(s => s.subject_code))].length, icon: Layers, color: 'purple' },
+            { label: 'Sections Handled', value: [...new Set(schedules.map(s => s.section_name))].length, icon: School, color: 'emerald' },
+            { label: 'Days Active', value: [...new Set(schedules.map(s => s.day_of_week))].length, icon: Calendar, color: 'amber' },
+          ].map(({ label, value, icon: Icon, color }) => (
+            <GlassCard key={label} className={`p-4 border border-${color}-100 dark:border-${color}-900/40`}>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</p>
+              <p className={`text-2xl font-extrabold text-${color}-600 dark:text-${color}-400 mt-1`}>{value}</p>
+            </GlassCard>
+          ))}
+        </div>
+      )}
+
+      {/* Admin / Registrar master table */}
+      {isAdmin && (
+        <DataTable
+          columns={columns}
+          data={schedules}
+          loading={loading}
+          searchPlaceholder="Search schedules by subject, section, day, or professor..."
+        />
+      )}
+
+      {/* Teacher: also show flat table below cards */}
+      {isTeacher && !loading && (
+        <DataTable
+          columns={columns}
+          data={schedules}
+          loading={loading}
+          searchPlaceholder="Search your teaching schedules..."
+        />
+      )}
+
+      {/* Student / Parent: flat table as backup */}
+      {(isStudent || isParent) && !loading && (
+        <DataTable
+          columns={columns.filter(c => c.header !== 'Assigned Professor' || isParent)}
+          data={schedules}
+          loading={loading}
+          searchPlaceholder="Search your class schedule..."
+        />
+      )}
 
       {/* Add Schedule Modal with Conflict Detection Engine */}
       <Modal
@@ -277,10 +390,10 @@ export const SchedulesPage = () => {
           </div>
 
           {/* Automated Conflict Checker Panel */}
-          <div className="p-4 rounded-2xl bg-indigo-50/60 dark:bg-slate-800/60 border border-indigo-100 dark:border-slate-700 space-y-3">
+          <div className="p-4 rounded-2xl bg-navy-50/60 dark:bg-slate-800/60 border border-navy-100 dark:border-slate-700 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
-                <ShieldAlert className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <span className="text-xs font-bold text-navy-700 dark:text-navy-300 flex items-center gap-1.5">
+                <ShieldAlert className="w-4 h-4 text-navy-700 dark:text-navy-400" />
                 <span>Automated Conflict Engine</span>
               </span>
               <Button
@@ -336,3 +449,6 @@ export const SchedulesPage = () => {
     </div>
   );
 };
+
+
+

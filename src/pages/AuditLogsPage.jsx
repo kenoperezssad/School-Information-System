@@ -16,7 +16,7 @@ export const AuditLogsPage = () => {
     setLoading(true);
     try {
       const res = await api.get('/audit');
-      if (res.success) setLogs(res.data);
+      if (res.success && res.data) setLogs(res.data);
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -52,7 +52,7 @@ export const AuditLogsPage = () => {
       header: 'Action',
       accessor: 'action',
       render: (row) => (
-        <span className="font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400">
+        <span className="font-mono font-bold text-xs text-navy-700 dark:text-navy-400">
           {row.action}
         </span>
       ),
@@ -92,3 +92,6 @@ export const AuditLogsPage = () => {
     </div>
   );
 };
+
+
+

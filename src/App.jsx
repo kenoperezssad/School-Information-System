@@ -1,5 +1,6 @@
 // src/App.jsx
 import React, { useState, useEffect, useRef } from 'react';
+import { PesoSign } from './components/common/PesoSign';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/layout/Layout';
@@ -10,7 +11,6 @@ import {
   Briefcase,
   GraduationCap,
   BarChart3,
-  DollarSign,
   X,
   ArrowRight,
 } from 'lucide-react';
@@ -41,7 +41,7 @@ const ProtectedRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+      <div className="min-h-screen flex items-center justify-center bg-gray-900">
         <LoadingSpinner label="Authenticating session..." size="lg" />
       </div>
     );
@@ -54,26 +54,36 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
+// Role-Based Route Guard â€” redirects unauthorized roles to dashboard
+const RoleRoute = ({ allowedRoles, children }) => {
+  const { user } = useAuth();
+  if (!user) return null;
+  if (!allowedRoles.includes(user.role)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return children;
+};
+
 // Global Search (Ctrl+K / Cmd+K)
 const QUICK_LINKS = [
   { label: 'Students', path: '/students', icon: 'Users', desc: 'View all students' },
   { label: 'Faculty', path: '/faculty', icon: 'Briefcase', desc: 'View all faculty' },
   { label: 'Enrollment', path: '/enrollment', icon: 'GraduationCap', desc: 'Manage enrollment' },
   { label: 'Reports', path: '/reports', icon: 'BarChart3', desc: 'View analytics' },
-  { label: 'Finance', path: '/finance', icon: 'DollarSign', desc: 'Payments & receipts' },
+  { label: 'Finance', path: '/finance', icon: 'PesoSign', desc: 'Payments & receipts' },
 ];
 
 const SAMPLE_STUDENTS = [
-  { label: 'Keno Reyes', path: '/students', icon: 'Users', desc: 'BSCS 3-A • Student ID: 2026-10001' },
-  { label: 'Sophia Santos', path: '/students', icon: 'Users', desc: 'BSIT 2-B • Student ID: 2026-10042' },
-  { label: 'Juan Dela Cruz', path: '/students', icon: 'Users', desc: 'BSEMC 1-A • Student ID: 2026-10103' },
-  { label: 'Maria Clara', path: '/students', icon: 'Users', desc: 'BSCS 4-A • Student ID: 2026-10015' },
+  { label: 'Keno Reyes', path: '/students', icon: 'Users', desc: 'BSCS 3-A â€¢ Student ID: 2026-10001' },
+  { label: 'Sophia Santos', path: '/students', icon: 'Users', desc: 'BSIT 2-B â€¢ Student ID: 2026-10042' },
+  { label: 'Juan Dela Cruz', path: '/students', icon: 'Users', desc: 'BSEMC 1-A â€¢ Student ID: 2026-10103' },
+  { label: 'Maria Clara', path: '/students', icon: 'Users', desc: 'BSCS 4-A â€¢ Student ID: 2026-10015' },
 ];
 
 const SAMPLE_FACULTY = [
-  { label: 'Dr. Alan Turing', path: '/faculty', icon: 'Briefcase', desc: 'Professor • Computer Science Dept' },
-  { label: 'Prof. Grace Hopper', path: '/faculty', icon: 'Briefcase', desc: 'Dean • College of Engineering' },
-  { label: 'Dr. Katherine Johnson', path: '/faculty', icon: 'Briefcase', desc: 'Head • Mathematics & Statistics' },
+  { label: 'Dr. Alan Turing', path: '/faculty', icon: 'Briefcase', desc: 'Professor â€¢ Computer Science Dept' },
+  { label: 'Prof. Grace Hopper', path: '/faculty', icon: 'Briefcase', desc: 'Dean â€¢ College of Engineering' },
+  { label: 'Dr. Katherine Johnson', path: '/faculty', icon: 'Briefcase', desc: 'Head â€¢ Mathematics & Statistics' },
 ];
 
 const ICON_MAP = {
@@ -81,7 +91,7 @@ const ICON_MAP = {
   Briefcase,
   GraduationCap,
   BarChart3,
-  DollarSign,
+  PesoSign,
 };
 
 function GlobalSearch() {
@@ -153,7 +163,7 @@ function GlobalSearch() {
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="fixed top-5 left-1/2 -translate-x-1/2 lg:left-[calc(50%+9rem)] lg:-translate-x-1/2 z-30 hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md shadow-xs hover:border-indigo-400 dark:hover:border-indigo-600 hover:bg-slate-50 dark:hover:bg-slate-800/80 text-xs text-slate-400 transition-all cursor-pointer"
+          className="fixed top-5 left-1/2 -translate-x-1/2 lg:left-[calc(50%+9rem)] lg:-translate-x-1/2 z-30 hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md shadow-xs hover:border-navy-400 dark:hover:border-navy-700 hover:bg-slate-50 dark:hover:bg-slate-800/80 text-xs text-slate-400 transition-all cursor-pointer"
           title="Search system (Ctrl+K)"
           aria-label="Global search shortcut"
         >
@@ -168,11 +178,11 @@ function GlobalSearch() {
       {/* Modal Overlay */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6 overflow-y-auto animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 bg-gray-900/60 backdrop-blur-sm p-4 sm:p-6 overflow-y-auto animate-in fade-in duration-150"
           onClick={handleClose}
         >
           <div
-            className="max-w-xl mx-auto mt-24 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden transition-all"
+            className="max-w-xl mx-auto mt-24 bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden transition-all"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Search Input Bar */}
@@ -218,7 +228,7 @@ function GlobalSearch() {
                           className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 text-left transition-colors group cursor-pointer"
                         >
                           <div className="flex items-center gap-3 min-w-0">
-                            <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0">
+                            <div className="p-2 rounded-lg bg-navy-50 dark:bg-navy-950/50 text-navy-700 dark:text-maroon-400 group-hover:bg-navy-800 group-hover:text-white transition-colors shrink-0">
                               <Icon className="w-4 h-4" />
                             </div>
                             <div className="min-w-0">
@@ -230,7 +240,7 @@ function GlobalSearch() {
                               </p>
                             </div>
                           </div>
-                          <ArrowRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
+                          <ArrowRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 group-hover:text-navy-600 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
                         </button>
                       );
                     })}
@@ -254,7 +264,7 @@ function GlobalSearch() {
                               className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 text-left transition-colors group cursor-pointer"
                             >
                               <div className="flex items-center gap-3 min-w-0">
-                                <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0">
+                                <div className="p-2 rounded-lg bg-navy-50 dark:bg-navy-950/50 text-navy-700 dark:text-maroon-400 group-hover:bg-navy-800 group-hover:text-white transition-colors shrink-0">
                                   <Icon className="w-4 h-4" />
                                 </div>
                                 <div className="min-w-0">
@@ -266,7 +276,7 @@ function GlobalSearch() {
                                   </p>
                                 </div>
                               </div>
-                              <ArrowRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
+                              <ArrowRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 group-hover:text-navy-600 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
                             </button>
                           );
                         })}
@@ -290,7 +300,7 @@ function GlobalSearch() {
                               className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 text-left transition-colors group cursor-pointer"
                             >
                               <div className="flex items-center gap-3 min-w-0">
-                                <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0">
+                                <div className="p-2 rounded-lg bg-navy-50 dark:bg-navy-950/50 text-navy-700 dark:text-maroon-400 group-hover:bg-navy-800 group-hover:text-white transition-colors shrink-0">
                                   <Icon className="w-4 h-4" />
                                 </div>
                                 <div className="min-w-0">
@@ -302,7 +312,7 @@ function GlobalSearch() {
                                   </p>
                                 </div>
                               </div>
-                              <ArrowRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
+                              <ArrowRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 group-hover:text-navy-600 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
                             </button>
                           );
                         })}
@@ -326,7 +336,7 @@ function GlobalSearch() {
                               className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/80 text-left transition-colors group cursor-pointer"
                             >
                               <div className="flex items-center gap-3 min-w-0">
-                                <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0">
+                                <div className="p-2 rounded-lg bg-navy-50 dark:bg-navy-950/50 text-navy-700 dark:text-maroon-400 group-hover:bg-navy-800 group-hover:text-white transition-colors shrink-0">
                                   <Icon className="w-4 h-4" />
                                 </div>
                                 <div className="min-w-0">
@@ -338,7 +348,7 @@ function GlobalSearch() {
                                   </p>
                                 </div>
                               </div>
-                              <ArrowRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
+                              <ArrowRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 group-hover:text-navy-600 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
                             </button>
                           );
                         })}
@@ -359,7 +369,7 @@ function GlobalSearch() {
             </div>
 
             {/* Modal Footer */}
-            <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+            <div className="px-4 py-2.5 bg-slate-50 dark:bg-gray-900/50 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
               <span>Press Esc to close</span>
               <kbd className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-[10px] text-slate-400 border border-slate-200 dark:border-slate-700 rounded-md font-mono">
                 ESC
@@ -392,22 +402,62 @@ export default function App() {
           >
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="students" element={<StudentsPage />} />
-            <Route path="admissions" element={<AdmissionsPage />} />
-            <Route path="enrollment" element={<EnrollmentPage />} />
-            <Route path="registrar" element={<RegistrarPage />} />
-            <Route path="faculty" element={<FacultyPage />} />
+
+            {/* Student-accessible routes */}
             <Route path="schedules" element={<SchedulesPage />} />
-            <Route path="attendance" element={<AttendancePage />} />
             <Route path="grades" element={<GradingPage />} />
+            <Route path="attendance" element={<AttendancePage />} />
             <Route path="finance" element={<FinancePage />} />
             <Route path="clearance" element={<ClearancePage />} />
-            <Route path="library" element={<LibraryPage />} />
-            <Route path="welfare" element={<WelfarePage />} />
-            <Route path="operations" element={<OperationsPage />} />
-            <Route path="reports" element={<ReportsPage />} />
+            <Route path="registrar" element={<RegistrarPage />} />
+
+            {/* Staff-only routes â€” students/parents redirected to dashboard */}
+            <Route path="students" element={
+              <RoleRoute allowedRoles={['Super Administrator','Registrar','Teacher','Guidance Counselor','School Nurse','Librarian','Accountant']}>
+                <StudentsPage />
+              </RoleRoute>
+            } />
+            <Route path="admissions" element={
+              <RoleRoute allowedRoles={['Super Administrator','Registrar']}>
+                <AdmissionsPage />
+              </RoleRoute>
+            } />
+            <Route path="enrollment" element={
+              <RoleRoute allowedRoles={['Super Administrator','Registrar']}>
+                <EnrollmentPage />
+              </RoleRoute>
+            } />
+            <Route path="faculty" element={
+              <RoleRoute allowedRoles={['Super Administrator','Registrar']}>
+                <FacultyPage />
+              </RoleRoute>
+            } />
+            <Route path="library" element={
+              <RoleRoute allowedRoles={['Super Administrator','Librarian','Student','Teacher']}>
+                <LibraryPage />
+              </RoleRoute>
+            } />
+            <Route path="welfare" element={
+              <RoleRoute allowedRoles={['Super Administrator','School Nurse','Guidance Counselor','Student']}>
+                <WelfarePage />
+              </RoleRoute>
+            } />
+            <Route path="operations" element={
+              <RoleRoute allowedRoles={['Super Administrator']}>
+                <OperationsPage />
+              </RoleRoute>
+            } />
+            <Route path="reports" element={
+              <RoleRoute allowedRoles={['Super Administrator','Registrar','Accountant','Teacher']}>
+                <ReportsPage />
+              </RoleRoute>
+            } />
             <Route path="verify" element={<VerifyPage />} />
-            <Route path="audit" element={<AuditLogsPage />} />
+            <Route path="audit" element={
+              <RoleRoute allowedRoles={['Super Administrator']}>
+                <AuditLogsPage />
+              </RoleRoute>
+            } />
           </Route>
 
           {/* Fallback */}
@@ -417,3 +467,5 @@ export default function App() {
     </AuthProvider>
   );
 }
+
+

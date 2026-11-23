@@ -1,4 +1,4 @@
-// src/pages/WelfarePage.jsx
+﻿// src/pages/WelfarePage.jsx
 import React, { useState, useEffect } from 'react';
 import api from '../api/client';
 import { PageHeader } from '../components/common/PageHeader';
@@ -18,8 +18,13 @@ import {
 } from 'lucide-react';
 
 export const WelfarePage = () => {
-  const { showToast } = useAuth();
-  const [activeTab, setActiveTab] = useState('clinic');
+  const { user, showToast } = useAuth();
+  const isStudent = user?.role === 'Student';
+  const isNurse = user?.role === 'School Nurse';
+  const isGuidance = user?.role === 'Guidance Counselor';
+  // Default tab based on role
+  const defaultTab = isNurse ? 'clinic' : isGuidance ? 'guidance' : 'clinic';
+  const [activeTab, setActiveTab] = useState(defaultTab);
   const [clinicRecords, setClinicRecords] = useState([]);
   const [guidanceRecords, setGuidanceRecords] = useState([]);
   const [disciplineRecords, setDisciplineRecords] = useState([]);
@@ -53,7 +58,7 @@ export const WelfarePage = () => {
       render: (row) => (
         <div>
           <p className="font-bold text-slate-900 dark:text-white">{row.last_name}, {row.first_name}</p>
-          <p className="text-[11px] font-mono text-slate-400">{row.student_number} • {row.program_code}</p>
+          <p className="text-[11px] font-mono text-slate-400">{row.student_number} â€¢ {row.program_code}</p>
         </div>
       ),
     },
@@ -93,7 +98,7 @@ export const WelfarePage = () => {
     {
       header: 'Case No.',
       accessor: 'case_number',
-      render: (row) => <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{row.case_number}</span>,
+      render: (row) => <span className="font-mono font-bold text-navy-700 dark:text-navy-400">{row.case_number}</span>,
     },
     {
       header: 'Student',
@@ -173,17 +178,27 @@ export const WelfarePage = () => {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Student Health, Counseling & Welfare"
-        subtitle="Role-protected medical records, confidential psychological guidance case notes, and student affairs disciplinary hearings"
+        title={
+          isStudent ? 'My Health & Counseling Records' :
+          isNurse ? 'University Infirmary â€” Medical Records' :
+          isGuidance ? 'Guidance & Counseling Case Management' :
+          'Student Health, Counseling & Welfare'
+        }
+        subtitle={
+          isStudent ? 'View your personal clinic visit history and confidential counseling sessions (read-only)' :
+          isNurse ? 'Manage student medical records, vital signs, and campus clinic visits' :
+          isGuidance ? 'Manage confidential counseling case notes and student behavioral tracking' :
+          'Role-protected medical records, confidential psychological guidance case notes, and student affairs disciplinary hearings'
+        }
       />
 
       <Tabs
         activeTab={activeTab}
         onChange={setActiveTab}
         tabs={[
-          { id: 'clinic', label: 'University Infirmary & Clinic', icon: HeartPulse, count: clinicRecords.length },
-          { id: 'guidance', label: 'Guidance & Counseling', icon: Brain, count: guidanceRecords.length },
-          { id: 'discipline', label: 'Discipline & Student Affairs', icon: ShieldAlert, count: disciplineRecords.length },
+          ...((!isGuidance) ? [{ id: 'clinic', label: isStudent ? 'My Clinic Visits' : 'University Infirmary & Clinic', icon: HeartPulse, count: clinicRecords.length }] : []),
+          ...((!isNurse) ? [{ id: 'guidance', label: isStudent ? 'My Counseling Sessions' : 'Guidance & Counseling', icon: Brain, count: guidanceRecords.length }] : []),
+          ...(!isStudent && !isNurse && !isGuidance ? [{ id: 'discipline', label: 'Discipline & Student Affairs', icon: ShieldAlert, count: disciplineRecords.length }] : []),
         ]}
       />
 
@@ -216,3 +231,6 @@ export const WelfarePage = () => {
     </div>
   );
 };
+
+
+

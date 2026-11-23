@@ -6,15 +6,23 @@ import { DataTable } from '../components/common/DataTable';
 import { Button } from '../components/common/Button';
 import { Badge } from '../components/common/Badge';
 import { Modal } from '../components/common/Modal';
+import { GlassCard } from '../components/common/GlassCard';
 import { useAuth } from '../context/AuthContext';
 import {
   FileText,
   Printer,
-  QrCode
+  QrCode,
+  Plus,
+  Clock,
+  CheckCircle2,
+  BookOpen
 } from 'lucide-react';
 
 export const RegistrarPage = () => {
-  const { showToast } = useAuth();
+  const { user, showToast } = useAuth();
+  const isStudent = user?.role === 'Student';
+  const isParent = user?.role === 'Parent/Guardian';
+  const isRegistrar = !isStudent && !isParent;
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -35,7 +43,7 @@ export const RegistrarPage = () => {
     setLoading(true);
     try {
       const res = await api.get('/registrar/documents');
-      if (res.success) setDocuments(res.data);
+      if (res.success && res.data) setDocuments(res.data);
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -92,7 +100,7 @@ export const RegistrarPage = () => {
     {
       header: 'Request No.',
       accessor: 'request_number',
-      render: (row) => <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{row.request_number}</span>,
+      render: (row) => <span className="font-mono font-bold text-navy-700 dark:text-navy-400">{row.request_number}</span>,
     },
     {
       header: 'Student Name',
@@ -134,7 +142,7 @@ export const RegistrarPage = () => {
           >
             Certificate
           </Button>
-          {row.status !== 'Released' && (
+          {isRegistrar && row.status !== 'Released' && (
             <Button
               size="sm"
               variant="primary"
@@ -151,18 +159,49 @@ export const RegistrarPage = () => {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Office of the University Registrar"
-        subtitle="Manage official academic credential requests, Transcripts of Record (TOR), Good Moral certifications, and verifiable digital releases"
+        title={
+          isStudent ? 'Request Official Documents' :
+          isParent ? "Ward's Official Document Requests" :
+          'Office of the University Registrar'
+        }
+        subtitle={
+          isStudent ? 'Request your official academic credentials — Transcript of Records (TOR), Certifications, Good Moral, and Enrollment Certificates' :
+          isParent ? "View your ward's document request history and status" :
+          'Manage official academic credential requests, Transcripts of Record (TOR), Good Moral certifications, and verifiable digital releases'
+        }
         actions={
           <Button
             variant="primary"
             icon={FileText}
             onClick={() => setRequestModalOpen(true)}
           >
-            File Document Request
+            {isStudent ? 'File My Document Request' : isParent ? 'File Request for Ward' : 'File Document Request'}
           </Button>
         }
       />
+
+      {/* Student request status overview */}
+      {isStudent && !loading && documents.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[
+            { label: 'Total Requests', value: documents.length, icon: FileText, color: 'navy' },
+            { label: 'Processing', value: documents.filter(d => d.status === 'Processing').length, icon: Clock, color: 'amber' },
+            { label: 'Released', value: documents.filter(d => d.status === 'Released').length, icon: CheckCircle2, color: 'emerald' },
+          ].map(({ label, value, icon: Icon, color }) => (
+            <GlassCard key={label} className={`p-4 border border-${color}-100 dark:border-${color}-900/40 bg-${color}-50/20 dark:bg-${color}-950/20`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl bg-${color}-100 dark:bg-${color}-950/50 flex items-center justify-center`}>
+                  <Icon className={`w-5 h-5 text-${color}-600 dark:text-${color}-400`} />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">{label}</p>
+                  <p className={`text-xl font-extrabold text-${color}-600 dark:text-${color}-400`}>{value}</p>
+                </div>
+              </div>
+            </GlassCard>
+          ))}
+        </div>
+      )}
 
       <DataTable
         columns={columns}
@@ -179,6 +218,8 @@ export const RegistrarPage = () => {
         subtitle="Request official academic certifications or credentials"
       >
         <form onSubmit={handleCreateRequest} className="space-y-4">
+          {/* Only show student picker for registrar/admin users */}
+          {isRegistrar && (
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Select Student</label>
             <select
@@ -192,6 +233,7 @@ export const RegistrarPage = () => {
               <option value="4">2026-10004 - Del Rosario, Isabella (BSCS)</option>
             </select>
           </div>
+          )}
 
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Document Type *</label>
@@ -248,18 +290,18 @@ export const RegistrarPage = () => {
       >
         {previewDoc && (
           <div className="space-y-6">
-            <div className="p-8 sm:p-12 bg-white text-slate-900 rounded-3xl border-2 border-indigo-900 print-card shadow-lg relative overflow-hidden">
+            <div className="p-8 sm:p-12 bg-white text-slate-900 rounded-3xl border-2 border-navy-700 print-card shadow-lg relative overflow-hidden">
               {/* Subtle background seal watermark */}
               <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none text-[220px]">
                 🎓
               </div>
 
               {/* Certificate Header */}
-              <div className="text-center pb-6 border-b-2 border-indigo-950">
-                <div className="w-16 h-16 rounded-3xl bg-indigo-950 text-white flex items-center justify-center mx-auto text-3xl font-extrabold mb-2 shadow-md">
+              <div className="text-center pb-6 border-b-2 border-navy-700">
+                <div className="w-16 h-16 rounded-3xl bg-navy-950 text-white flex items-center justify-center mx-auto text-3xl font-extrabold mb-2 shadow-md">
                   🎓
                 </div>
-                <h2 className="text-2xl font-serif font-extrabold uppercase tracking-widest text-indigo-950">
+                <h2 className="text-2xl font-serif font-extrabold uppercase tracking-widest text-navy-700">
                   Apex State University
                 </h2>
                 <p className="text-xs uppercase tracking-widest text-slate-500 font-bold">
@@ -272,7 +314,7 @@ export const RegistrarPage = () => {
 
               {/* Title */}
               <div className="text-center my-8">
-                <h3 className="text-xl sm:text-2xl font-serif font-bold uppercase text-indigo-900 tracking-wider">
+                <h3 className="text-xl sm:text-2xl font-serif font-bold uppercase text-navy-700 tracking-wider">
                   {previewDoc.document_type}
                 </h3>
                 <p className="text-xs text-slate-500 font-mono mt-1">
@@ -286,7 +328,7 @@ export const RegistrarPage = () => {
                   <strong>TO WHOM IT MAY CONCERN:</strong>
                 </p>
                 <p className="text-justify indent-8">
-                  This is to officially certify that <strong className="text-indigo-950 underline">{previewDoc.first_name} {previewDoc.last_name}</strong> (Student No. <span className="font-mono font-bold">{previewDoc.student_number}</span>) is a bona fide student of Apex State University, enrolled in the <strong className="text-indigo-950">{previewDoc.program_code}</strong> program.
+                  This is to officially certify that <strong className="text-navy-700 underline">{previewDoc.first_name} {previewDoc.last_name}</strong> (Student No. <span className="font-mono font-bold">{previewDoc.student_number}</span>) is a bona fide student of Apex State University, enrolled in the <strong className="text-navy-700">{previewDoc.program_code}</strong> program.
                 </p>
                 <p className="text-justify indent-8">
                   Records on file in this office attest that the said student has maintained exemplary moral character, adheres to all university bylaws and codes of conduct, and has no recorded disciplinary infractions or suspensions.
@@ -299,16 +341,16 @@ export const RegistrarPage = () => {
               {/* Signatures & QR Code Token Footer */}
               <div className="mt-12 pt-6 border-t border-slate-300 flex items-end justify-between">
                 <div className="flex items-center gap-3">
-                  <QrCode className="w-16 h-16 text-indigo-950" />
+                  <QrCode className="w-16 h-16 text-navy-700" />
                   <div className="text-left text-[10px] text-slate-500">
-                    <p className="font-bold text-indigo-900">VERIFIABLE DIGITAL CREDENTIAL</p>
+                    <p className="font-bold text-navy-700">VERIFIABLE DIGITAL CREDENTIAL</p>
                     <p className="font-mono">Token: {previewDoc.tracking_token}</p>
                     <p>Verify online at: apexsis.edu/verify</p>
                   </div>
                 </div>
 
                 <div className="text-center">
-                  <div className="font-serif font-bold text-sm text-indigo-950 border-b border-slate-900 pb-1 px-6">
+                  <div className="font-serif font-bold text-sm text-navy-700 border-b border-slate-900 pb-1 px-6">
                     DR. ELENA ROBLES, Ph.D.
                   </div>
                   <p className="text-[11px] font-sans font-semibold text-slate-500 uppercase mt-1">
@@ -337,3 +379,6 @@ export const RegistrarPage = () => {
     </div>
   );
 };
+
+
+

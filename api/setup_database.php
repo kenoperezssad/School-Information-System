@@ -848,6 +848,29 @@ try {
         // Audit Log initial record
         $pdo->exec("INSERT INTO audit_logs (user_name, role, action, module, record_id, new_values, ip_address, user_agent) VALUES
             ('System Seeder', 'Super Administrator', 'INITIALIZE_SYSTEM', 'Core System', '1', 'Initial database tables created and baseline master data seeded successfully.', '127.0.0.1', 'ApexSIS CLI Engine');");
+
+        // ─── Performance Indexes ──────────────────────────────────────────────
+        $indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_users_email           ON users(email)",
+            "CREATE INDEX IF NOT EXISTS idx_users_role            ON users(role)",
+            "CREATE INDEX IF NOT EXISTS idx_students_program      ON students(program_id)",
+            "CREATE INDEX IF NOT EXISTS idx_students_number       ON students(student_number)",
+            "CREATE INDEX IF NOT EXISTS idx_audit_logs_created    ON audit_logs(created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_audit_logs_user       ON audit_logs(user_name)",
+            "CREATE INDEX IF NOT EXISTS idx_enrollments_student   ON enrollments(student_id)",
+            "CREATE INDEX IF NOT EXISTS idx_enrollments_sched     ON enrollments(schedule_id)",
+            "CREATE INDEX IF NOT EXISTS idx_grades_enrollment     ON grades(enrollment_id)",
+            "CREATE INDEX IF NOT EXISTS idx_attendance_student    ON attendance(student_id)",
+            "CREATE INDEX IF NOT EXISTS idx_attendance_date       ON attendance(attendance_date)",
+            "CREATE INDEX IF NOT EXISTS idx_clearances_student    ON clearances(student_id)",
+            "CREATE INDEX IF NOT EXISTS idx_invoices_student      ON tuition_invoices(student_id)",
+            "CREATE INDEX IF NOT EXISTS idx_payments_student      ON payments(student_id)",
+            "CREATE INDEX IF NOT EXISTS idx_library_borrow_stu    ON library_borrowings(student_id)",
+            "CREATE INDEX IF NOT EXISTS idx_registrar_docs_stu    ON registrar_documents(student_id)",
+        ];
+        foreach ($indexes as $sql) {
+            try { $pdo->exec($sql); } catch (Exception $e) { /* ignore if table doesn't exist yet */ }
+        }
     }
 
     echo json_encode([
